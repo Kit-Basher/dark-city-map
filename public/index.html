@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dark City Map</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #0b0f14;
+        color: #e7eef7;
+        overflow: hidden;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      }
+
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+
+      #hud {
+        position: fixed;
+        left: 16px;
+        top: 16px;
+        right: 16px;
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        pointer-events: none;
+      }
+
+      .panel {
+        background: rgba(13, 18, 26, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 10px 12px;
+        backdrop-filter: blur(8px);
+        pointer-events: none;
+      }
+
+      .title {
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        font-size: 14px;
+      }
+
+      .sub {
+        margin-top: 4px;
+        opacity: 0.8;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      #status {
+        font-size: 12px;
+        opacity: 0.85;
+      }
+
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="hud">
+      <div class="panel">
+        <div class="title">Dark City Map</div>
+        <div class="sub">Drag to orbit · Right-drag to pan · Scroll to zoom</div>
+      </div>
+      <div class="panel" id="status">Loading…</div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
