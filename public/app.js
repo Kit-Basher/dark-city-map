@@ -352,8 +352,6 @@ loader.load(
     const maxDim = Math.max(adjustedSize.x, adjustedSize.y, adjustedSize.z);
     const fitDistance = maxDim * 1.1;
 
-    districtLabelRefDistance = fitDistance;
-
     camera.near = Math.max(0.1, maxDim / 5000);
     camera.far = Math.max(5000, maxDim * 30);
     camera.updateProjectionMatrix();
@@ -361,6 +359,8 @@ loader.load(
     camera.position.set(0, fitDistance * 0.6, fitDistance);
     controls.target.set(0, 0, 0);
     controls.update();
+
+    districtLabelRefDistance = camera.position.distanceTo(controls.target);
 
     const groundSize = Math.max(adjustedSize.x, adjustedSize.z) * 1.25;
     const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
@@ -692,7 +692,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
 
   const dist = camera.position.distanceTo(controls.target);
-  const labelScaleFactor = THREE.MathUtils.clamp(Math.sqrt(dist / Math.max(1, districtLabelRefDistance)), 0.75, 2.5);
+  const labelScaleFactor = THREE.MathUtils.clamp(dist / Math.max(1, districtLabelRefDistance), 0.75, 3.25);
   for (const s of districtLabelSprites) {
     const base = s.userData.baseScale;
     if (!base) continue;
