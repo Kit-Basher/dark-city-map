@@ -39,8 +39,11 @@ controls.minDistance = 1;
 controls.maxDistance = 8000;
 
 const districtLabelSprites = [];
-const LABEL_DISTANCE_EXP = 1.15;
-const LABEL_BASE_BOOST = 2.25;
+const districtLabelById = {};
+let selectedDistrictId = null;
+const LABEL_STATIC_BOOST = 2.6;
+const LABEL_SELECTED_DISTANCE_EXP = 1.2;
+const LABEL_SELECTED_EXTRA_BOOST = 1.15;
 
 const hemi = new THREE.HemisphereLight(0xdde8ff, 0x0b0f14, 1.15);
 hemi.position.set(0, 400, 0);
@@ -169,6 +172,7 @@ const districtDetails = {
 };
 
 function setSelectedDistrict(def) {
+  selectedDistrictId = def ? def.id : null;
   if (!def) {
     districtNameEl.textContent = 'No district selected';
     districtBodyEl.textContent =
@@ -434,9 +438,11 @@ loader.load(
       label.position.set(centers[d.id].x, ground.position.y + baseZoneRadius * s * 0.18, centers[d.id].z);
       districtsGroup.add(label);
       labels[d.id] = label;
+      label.scale.multiplyScalar(LABEL_STATIC_BOOST);
       label.userData.baseScale = label.scale.clone();
       label.userData.refDistance = initialCameraDistance;
       districtLabelSprites.push(label);
+      districtLabelById[d.id] = label;
     }
 
     let activeIndex = 0;
@@ -695,13 +701,22 @@ function animate() {
 
   for (const s of districtLabelSprites) {
     const base = s.userData.baseScale;
-    const ref = s.userData.refDistance;
-    if (!base || !ref) continue;
+    if (!base) continue;
+    s.scale.set(base.x, base.y, base.z);
+  }
 
-    const d = s.position.distanceTo(camera.position);
-    const ratio = Math.max(0.001, d / ref);
-    const factor = THREE.MathUtils.clamp(LABEL_BASE_BOOST * Math.pow(ratio, LABEL_DISTANCE_EXP), 0.9, 12);
-    s.scale.set(base.x * factor, base.y * factor, base.z);
+  if (selectedDistrictId) {
+    const s = districtLabelById[selectedDistrictId];
+    if (s) {
+      const base = s.userData.baseScale;
+      const ref = s.userData.refDistance;
+      if (base && ref) {
+        const d = s.position.distanceTo(camera.position);
+        const ratio = Math.max(0.001, d / ref);
+        const factor = THREE.MathUtils.clamp(LABEL_SELECTED_EXTRA_BOOST * Math.pow(ratio, LABEL_SELECTED_DISTANCE_EXP), 1, 6);
+        s.scale.set(base.x * factor, base.y * factor, base.z);
+      }
+    }
   }
 
   const moveSpeed = (keyState.fast ? 520 : 260) * dt;
