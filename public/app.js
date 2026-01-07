@@ -180,6 +180,14 @@ async function deletePinOnServer(id) {
   });
 }
 
+function debounce(fn, waitMs) {
+  let t;
+  return (...args) => {
+    if (t) window.clearTimeout(t);
+    t = window.setTimeout(() => fn(...args), waitMs);
+  };
+}
+
 function makeId() {
   return `pin_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
 }
@@ -629,6 +637,49 @@ loader.load(
       if (pinDeleteEl) pinDeleteEl.disabled = !canEdit;
     }
 
+    const autoSaveSelectedPin = debounce(async () => {
+      if (!selectedPinId) return;
+      const pin = getPinById(selectedPinId);
+      if (!pin) return;
+
+      const me = await refreshMe();
+      if (!me) return;
+
+      const canEdit = editMode || (pin.ownerId && pin.ownerId === me.id);
+      if (!canEdit) return;
+
+      const next = {
+        name: pinNameEl?.value?.trim() || '',
+        type: pinTypeEl?.value?.trim() || '',
+        desc: pinDescEl?.value || '',
+        districtId: pinDistrictEl?.value || '',
+      };
+
+      const changed =
+        next.name !== (pin.name || '') ||
+        next.type !== (pin.type || '') ||
+        next.desc !== (pin.desc || '') ||
+        next.districtId !== (pin.districtId || '');
+
+      if (!changed) return;
+
+      try {
+        const updated = await updatePinOnServer(pin.id, next);
+        if (updated) {
+          const idx = pins.findIndex((x) => x.id === updated.id);
+          if (idx >= 0) pins[idx] = updated;
+        }
+        updatePcDropdownForSelectedDistrict();
+        statusEl.textContent = 'Saved';
+      } catch (err) {
+        if (err?.status === 401) {
+          redirectToDiscordLogin();
+          return;
+        }
+        statusEl.textContent = err?.message || 'Auto-save failed';
+      }
+    }, 650);
+
     function pointIsInZone(point, districtId) {
       const z = zones[districtId];
       if (!z) return false;
@@ -759,6 +810,11 @@ loader.load(
         }
       });
     }
+
+    if (pinNameEl) pinNameEl.addEventListener('input', () => autoSaveSelectedPin());
+    if (pinTypeEl) pinTypeEl.addEventListener('input', () => autoSaveSelectedPin());
+    if (pinDescEl) pinDescEl.addEventListener('input', () => autoSaveSelectedPin());
+    if (pinDistrictEl) pinDistrictEl.addEventListener('change', () => autoSaveSelectedPin());
 
     if (pinDeleteEl) {
       pinDeleteEl.addEventListener('click', async () => {

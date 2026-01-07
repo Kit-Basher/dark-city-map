@@ -132,40 +132,33 @@ function isPublicPath(pathname) {
   return false;
 }
 
-app.use(async (req, res, next) => {
-  if (isPublicPath(req.path)) return next();
-
-  const wantsJson = req.path.startsWith('/api/') || (req.headers.accept && req.headers.accept.includes('application/json'));
+function requireModerator(req, res, next) {
   const isAuthed = req.isAuthenticated && req.isAuthenticated() && req.user && req.user.id;
-
   if (!isAuthed) {
-    if (wantsJson) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
     const returnTo = req.originalUrl || '/';
     res.redirect(`/auth/discord?returnTo=${encodeURIComponent(returnTo)}`);
     return;
   }
-
-  try {
-    const ok = await userHasModeratorRole(req.user.id);
-    if (!ok) {
-      if (wantsJson) {
-        res.status(403).json({ error: 'Forbidden' });
+  userHasModeratorRole(req.user.id)
+    .then((ok) => {
+      if (!ok) {
+        res.status(403).send('Forbidden');
         return;
       }
-      res.status(403).send('Forbidden');
-      return;
-    }
-    next();
-  } catch (err) {
-    if (wantsJson) {
-      res.status(500).json({ error: err?.message || 'Server error' });
-      return;
-    }
-    res.status(500).send(err?.message || 'Server error');
+      next();
+    })
+    .catch((err) => {
+      res.status(500).send(err?.message || 'Server error');
+    });
+}
+
+app.get('/', (req, res, next) => {
+  const edit = typeof req.query.edit === 'string' ? req.query.edit : '';
+  if (edit === '1') {
+    requireModerator(req, res, () => res.sendFile(path.join(publicDir, 'index.html')));
+    return;
   }
+  res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 app.use(express.static(publicDir));
@@ -173,6 +166,15 @@ app.use(express.static(publicDir));
 function requireAuth(req, res, next) {
   if (req.isAuthenticated && req.isAuthenticated()) return next();
   res.status(401).json({ error: 'Unauthorized' });
+}
+
+async function isModerator(req) {
+  try {
+    if (!(req.isAuthenticated && req.isAuthenticated() && req.user && req.user.id)) return false;
+    return await userHasModeratorRole(req.user.id);
+  } catch {
+    return false;
+  }
 }
 
 const DISTRICT_CONFIG_DOC_ID = 'districts_v1';
@@ -189,6 +191,11 @@ app.get('/api/districts/config', async (req, res) => {
 
 app.put('/api/districts/config', requireAuth, async (req, res) => {
   try {
+    const mod = await isModerator(req);
+    if (!mod) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
     const body = req.body || {};
     const config = body.config && typeof body.config === 'object' ? body.config : null;
     if (!config) {
@@ -313,7 +320,8 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
       res.status(404).json({ error: 'Pin not found' });
       return;
     }
-    if (existing.ownerId !== req.user.id) {
+    const mod = await isModerator(req);
+    if (!mod && existing.ownerId !== req.user.id) {
       res.status(403).json({ error: 'Forbidden' });
       return;
     }
@@ -345,6 +353,11 @@ app.delete('/api/pins/:id', requireAuth, async (req, res) => {
     const existing = await db.collection('pins').findOne({ _id: id });
     if (!existing) {
       res.status(404).json({ error: 'Pin not found' });
+      return;
+    }
+    const mod = await isModerator(req);
+    if (!mod && existing.ownerId !== req.user.id) {
+      res.status(403).json({ error: 'Forbidden' });
       return;
     }
     await db.collection('pins').deleteOne({ _id: id });
