@@ -171,7 +171,7 @@ function setSelectedDistrict(def) {
   if (!def) {
     districtNameEl.textContent = 'No district selected';
     districtBodyEl.textContent =
-      'Click a district to view details.\n\nUndercity: a vast tunnel/subway network connecting major landmarks and hidden routes.';
+      "Click a district to view details.\n\n#the-undercity channel.\nWhile the city's expansion continued, so did\nintricacy of the subway network. Originally\ndesigned to house a lot of the unseen workings of\nthe city, like water reservoirs, maintenance\ntunnels, electric and internet lines, and\nunderground transportation, its purpose has\ngrown far beyond the initial expectations.";
     districtSwatchEl.style.background = 'transparent';
     return;
   }
