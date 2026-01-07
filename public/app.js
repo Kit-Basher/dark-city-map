@@ -9,6 +9,14 @@ const districtSwatchEl = document.getElementById('district-swatch');
 const districtListEl = document.getElementById('district-list');
 const pcBuildingSelectEl = document.getElementById('pc-building-select');
 const pcBuildingDetailsEl = document.getElementById('pc-building-details');
+const locationsListEl = document.getElementById('locations-list');
+const locationNameEl = document.getElementById('location-name');
+const locationTypeEl = document.getElementById('location-type');
+const locationDescEl = document.getElementById('location-desc');
+const locationCreatePlaceEl = document.getElementById('location-create-place');
+const locationMoveEl = document.getElementById('location-move');
+const locationSaveEl = document.getElementById('location-save');
+const locationDeleteEl = document.getElementById('location-delete');
 
 const container = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -77,6 +85,28 @@ const DISTRICT_RADIUS_OVERRIDES = {
 const localPcBuildings = [
   { id: 'pc_001', name: 'PC Building (example)', districtId: 'downtown' },
 ];
+
+const LOCATIONS_STORAGE_KEY = 'dc_locations_v1';
+
+function loadLocations() {
+  try {
+    const raw = window.localStorage.getItem(LOCATIONS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
+function saveLocations(items) {
+  window.localStorage.setItem(LOCATIONS_STORAGE_KEY, JSON.stringify(items));
+}
+
+function makeId() {
+  return `loc_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+}
 
 function getDistrictRadiusScale(id, globalScale) {
   const override = DISTRICT_RADIUS_OVERRIDES[id];
@@ -376,6 +406,156 @@ loader.load(
     ground.receiveShadow = true;
     scene.add(ground);
 
+    const markerGroup = new THREE.Group();
+    markerGroup.renderOrder = 50;
+    scene.add(markerGroup);
+
+    const markerMeshes = [];
+    const locationByUuid = {};
+    let locations = loadLocations();
+    let selectedLocationId = null;
+    let placingMode = null;
+    let placingDraft = null;
+
+    function clearMarkers() {
+      for (const m of markerMeshes) markerGroup.remove(m);
+      markerMeshes.length = 0;
+      for (const k of Object.keys(locationByUuid)) delete locationByUuid[k];
+    }
+
+    function addMarkerForLocation(loc) {
+      const geom = new THREE.ConeGeometry(6, 18, 10);
+      const mat = new THREE.MeshStandardMaterial({ color: 0xfff2b2, emissive: 0x1a1a1a, roughness: 0.4, metalness: 0.0 });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(loc.pos.x, loc.pos.y + 12, loc.pos.z);
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      mesh.renderOrder = 50;
+      markerGroup.add(mesh);
+      markerMeshes.push(mesh);
+      locationByUuid[mesh.uuid] = loc.id;
+      return mesh;
+    }
+
+    function rebuildMarkers() {
+      clearMarkers();
+      for (const loc of locations) {
+        if (!loc || !loc.pos) continue;
+        addMarkerForLocation(loc);
+      }
+    }
+
+    function getLocationById(id) {
+      return locations.find((l) => l.id === id) || null;
+    }
+
+    function setSelectedLocation(id) {
+      selectedLocationId = id;
+      const loc = id ? getLocationById(id) : null;
+      if (locationNameEl) locationNameEl.value = loc?.name || '';
+      if (locationTypeEl) locationTypeEl.value = loc?.type || '';
+      if (locationDescEl) locationDescEl.value = loc?.desc || '';
+      if (locationsListEl) {
+        for (const child of locationsListEl.children) child.setAttribute('aria-current', 'false');
+        if (id) {
+          for (const child of locationsListEl.children) {
+            if (child.getAttribute('data-id') === id) child.setAttribute('aria-current', 'true');
+          }
+        }
+      }
+    }
+
+    function renderLocationsList() {
+      if (!locationsListEl) return;
+      locationsListEl.innerHTML = '';
+      for (const loc of locations) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'district-btn';
+        btn.textContent = loc.name || '(untitled)';
+        btn.setAttribute('data-id', loc.id);
+        btn.setAttribute('aria-current', loc.id === selectedLocationId ? 'true' : 'false');
+        btn.addEventListener('click', () => setSelectedLocation(loc.id));
+        locationsListEl.appendChild(btn);
+      }
+    }
+
+    function startPlacing(mode, draft) {
+      placingMode = mode;
+      placingDraft = draft;
+      statusEl.textContent = 'Click the map to place location…';
+    }
+
+    function stopPlacing() {
+      placingMode = null;
+      placingDraft = null;
+      updateEditHud();
+    }
+
+    if (locationCreatePlaceEl) {
+      locationCreatePlaceEl.addEventListener('click', () => {
+        const name = locationNameEl?.value?.trim() || '';
+        if (!name) {
+          statusEl.textContent = 'Enter a location name first';
+          return;
+        }
+        const draft = {
+          id: makeId(),
+          name,
+          type: locationTypeEl?.value?.trim() || '',
+          desc: locationDescEl?.value || '',
+          pos: null,
+        };
+        startPlacing('create', draft);
+      });
+    }
+
+    if (locationMoveEl) {
+      locationMoveEl.addEventListener('click', () => {
+        if (!selectedLocationId) {
+          statusEl.textContent = 'Select a location to move';
+          return;
+        }
+        startPlacing('move', { id: selectedLocationId });
+      });
+    }
+
+    if (locationSaveEl) {
+      locationSaveEl.addEventListener('click', () => {
+        if (!selectedLocationId) {
+          statusEl.textContent = 'Select a location to save';
+          return;
+        }
+        const loc = getLocationById(selectedLocationId);
+        if (!loc) return;
+        loc.name = locationNameEl?.value?.trim() || loc.name;
+        loc.type = locationTypeEl?.value?.trim() || '';
+        loc.desc = locationDescEl?.value || '';
+        saveLocations(locations);
+        renderLocationsList();
+        statusEl.textContent = 'Saved location';
+      });
+    }
+
+    if (locationDeleteEl) {
+      locationDeleteEl.addEventListener('click', () => {
+        if (!selectedLocationId) {
+          statusEl.textContent = 'Select a location to delete';
+          return;
+        }
+        locations = locations.filter((l) => l.id !== selectedLocationId);
+        saveLocations(locations);
+        selectedLocationId = null;
+        setSelectedLocation(null);
+        rebuildMarkers();
+        renderLocationsList();
+        statusEl.textContent = 'Deleted location';
+      });
+    }
+
+    rebuildMarkers();
+    renderLocationsList();
+
     const defaultCentersNdc = {
       pembroke: { x: -0.269830844714094, z: 0.9101437867080426 },
       little_york: { x: 0.33254451228022464, z: 0.606756677576358 },
@@ -587,6 +767,14 @@ loader.load(
       mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
 
       raycaster.setFromCamera(mouse, camera);
+
+      const markerHits = raycaster.intersectObjects(markerMeshes, false);
+      if (markerHits.length) {
+        const locId = locationByUuid[markerHits[0].object.uuid];
+        if (locId) setSelectedLocation(locId);
+        return;
+      }
+
       const hits = raycaster.intersectObjects(zonesArray, false);
       const hit = hits[0];
 
@@ -673,6 +861,42 @@ loader.load(
     renderer.domElement.addEventListener('pointermove', onPointerMove);
     renderer.domElement.addEventListener('pointerdown', onPointerDownSelect);
     renderer.domElement.addEventListener('pointerup', onPointerUpSelect);
+
+    renderer.domElement.addEventListener('pointerup', (e) => {
+      if (!placingMode) return;
+      if (editMode) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObject(ground, false);
+      if (!hits.length) return;
+      const p = hits[0].point;
+
+      if (placingMode === 'create' && placingDraft) {
+        placingDraft.pos = { x: p.x, y: p.y, z: p.z };
+        locations.push(placingDraft);
+        saveLocations(locations);
+        rebuildMarkers();
+        renderLocationsList();
+        setSelectedLocation(placingDraft.id);
+        statusEl.textContent = 'Placed location';
+        stopPlacing();
+        return;
+      }
+
+      if (placingMode === 'move' && placingDraft && placingDraft.id) {
+        const loc = getLocationById(placingDraft.id);
+        if (!loc) return;
+        loc.pos = { x: p.x, y: p.y, z: p.z };
+        saveLocations(locations);
+        rebuildMarkers();
+        statusEl.textContent = 'Moved location';
+        stopPlacing();
+      }
+    });
 
     updateEditHud();
   },
