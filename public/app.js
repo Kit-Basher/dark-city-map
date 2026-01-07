@@ -86,23 +86,57 @@ const districtDefs = [
 ];
 
 const districtDetails = {
-  pembroke: { tagline: 'Northern district.' },
-  little_york: { tagline: 'Western district.' },
-  le_grande: { tagline: 'Central-west district.' },
-  penn_square: { tagline: 'Civic and cultural hub.' },
-  downtown: { tagline: 'Commerce and nightlife.' },
-  wharf: { tagline: 'Docks and waterfront.' },
-  suplex: { tagline: 'Crossroads district.' },
-  hamptons: { tagline: 'East side district.' },
-  soho: { tagline: 'South-east district.' },
-  old_quarter: { tagline: 'Historic district.' },
-  industrial_quarter: { tagline: 'Factories and yards.' },
+  pembroke: {
+    tagline:
+      "An old timey neighborhood on the far edge of town, with old cottage style family homes, small yards, and woods leading off one end. Everyone here knows each other and often leave their homes unlocked. There is a small corner store and a small local theater—life is slow and quiet here.",
+  },
+  little_york: {
+    tagline:
+      "A middle-class, mostly residential area—classic New York style apartment buildings and businesses. One of the few \"old-styled\" areas with only minor neo upgrades: lots of brick and simple stone decorations. Glass-windowed boutiques and mom-and-pop stores line the street with a little neon and chrome peeking through here and there.",
+  },
+  le_grande: {
+    tagline:
+      "A beautifully maintained resort area along the coast. Home to the \"Grande Time\" theme/water park with roller-coasters, water-slides, beaches, and shops. There is an attached arena for circulating attractions such as circuses, as well as the Le Grande hotel proper—over a hundred years old—lovingly maintained and updated by a mysterious benefactor.",
+  },
+  penn_square: {
+    tagline:
+      "A contemporary part of the city with freshly paved roads and lots of greenery. It contains entertainment and commercial facilities such as museums, theaters, cinemas, restaurants, bars, contemporary art galleries, a department store, and retail shops. Also home to a popular farmers market and several food, wine, art, and culture festivals.",
+  },
+  downtown: {
+    tagline:
+      "Though its borders are not clearly defined, Downtown consists roughly of the residential neighborhoods and commercial shopping areas from the river to the city center. Found here are many department stores, boutiques, day spas, a multiplex cinema, and other services catering to residents and visitors. Moderate and discount chains mix with corporate offices and broadcast media—heavy traffic is not uncommon.",
+  },
+  suplex: {
+    tagline:
+      "The city’s largest indoor mall, consisting of every amenity imaginable. Shops of every kind, theaters, restaurants, even theme parks. Hotels of all kinds are spread throughout—some offering long-term monthly rental deals. Delving into hidden areas can reveal a darker underbelly to the markets, too.",
+  },
+  hamptons: {
+    tagline:
+      "An upper-class private walled community. A mostly residential district with multi-million dollar mansions and landscaped yards with pools. Black-tie restaurants and super-car dealerships are sprinkled throughout.",
+  },
+  wharf: {
+    tagline:
+      "With easy access to the ocean and the growing expanse of the city, new construction was needed to facilitate trade and commerce—thus the Wharf: a massive spread of docks, warehouses, and shipping yards. Ships of all sizes come to deliver and send off goods while workers manage the dry docks. It also provides a prime location for clandestine meetings and corrupt underhanded deals.",
+  },
+  soho: {
+    tagline:
+      "A looser part of the city with older architecture. Once historical, after years of neglect and self policing it’s now corrupted with black curtains and red lights. Known for girl gangs and drug rings; bars, casinos, and clubs provide a rush of freedom. Scandals with stars and the odd politician pop up as many come in secret. The supernatural find criminals and underground groups—wolves, shapeshifters, vampire blood parlors, and more. Police are generally unwelcome here—except those who come to indulge.",
+  },
+  old_quarter: {
+    tagline:
+      "The first settlers built a community near the mouth of the river. This area contains preserved colonial-era buildings and homes, including Old Town Hall (now a museum), the original Farmer’s Market, the prestigious City University, St. Bibiana’s Cathedral, the Old Cemetery, the War Memorial, and The Commons—the city’s first public park. Rumor has it a network of tunnels spiders between strategic locations in the Old Quarter.",
+  },
+  industrial_quarter: {
+    tagline:
+      "A large industrial district and one of the most technologically advanced areas of the city. Huge strange buildings of steel and chrome stretch skyward awkwardly. The roads are labyrinthine, and occasionally strange foreign scents—or a stray scream—roll through the district.",
+  },
 };
 
 function setSelectedDistrict(def) {
   if (!def) {
     districtNameEl.textContent = 'No district selected';
-    districtBodyEl.textContent = 'Click a district to view details.';
+    districtBodyEl.textContent =
+      'Click a district to view details.\n\nUndercity: a vast tunnel/subway network connecting major landmarks and hidden routes (not shown as a surface district yet).';
     districtSwatchEl.style.background = 'transparent';
     return;
   }
