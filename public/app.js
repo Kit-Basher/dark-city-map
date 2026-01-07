@@ -491,6 +491,32 @@ loader.load(
       }
     }
 
+    function focusCameraOnPoint(point, opts = {}) {
+      const durationMs = typeof opts.durationMs === 'number' ? opts.durationMs : 550;
+
+      const fromTarget = controls.target.clone();
+      const toTarget = new THREE.Vector3(point.x, point.y, point.z);
+      const fromCam = camera.position.clone();
+      const camOffset = fromCam.clone().sub(fromTarget);
+      const toCam = toTarget.clone().add(camOffset);
+
+      const start = performance.now();
+      function easeInOut(t) {
+        return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      }
+
+      function step(now) {
+        const t = Math.min(1, (now - start) / durationMs);
+        const k = easeInOut(t);
+        controls.target.lerpVectors(fromTarget, toTarget, k);
+        camera.position.lerpVectors(fromCam, toCam, k);
+        controls.update();
+        if (t < 1) requestAnimationFrame(step);
+      }
+
+      requestAnimationFrame(step);
+    }
+
     function setSelectedPin(id) {
       selectedPinId = id;
       const pin = id ? getPinById(id) : null;
@@ -553,6 +579,7 @@ loader.load(
           setSelectedPin(pin.id);
           setSelectedDistrict(districtDefs.find((d) => d.id === pin.districtId) || null);
           setSelectedPcBuilding({ name: pin.name || '(unnamed pin)', districtId: pin.districtId || '' });
+          if (pin.pos) focusCameraOnPoint(pin.pos);
         } else {
           setSelectedPcBuilding(null);
         }
