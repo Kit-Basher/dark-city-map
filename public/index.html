@@ -59,6 +59,49 @@
         opacity: 0.85;
       }
 
+      #district-panel {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        width: min(360px, calc(100vw - 32px));
+        pointer-events: auto;
+      }
+
+      #district-panel .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      #district-name {
+        font-weight: 800;
+        letter-spacing: 0.2px;
+        font-size: 14px;
+      }
+
+      #district-swatch {
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        background: transparent;
+        flex: 0 0 auto;
+      }
+
+      #district-body {
+        margin-top: 8px;
+        font-size: 12px;
+        line-height: 1.45;
+        opacity: 0.88;
+      }
+
+      #district-hint {
+        margin-top: 10px;
+        font-size: 11px;
+        opacity: 0.65;
+      }
+
       canvas {
         display: block;
       }
@@ -73,6 +116,15 @@
         <div class="sub">Drag to orbit · Right-drag to pan · Scroll to zoom</div>
       </div>
       <div class="panel" id="status">Loading…</div>
+    </div>
+
+    <div class="panel" id="district-panel">
+      <div class="header">
+        <div id="district-name">No district selected</div>
+        <div id="district-swatch"></div>
+      </div>
+      <div id="district-body">Click a district to view details.</div>
+      <div id="district-hint">Tip: hover to highlight · click to select</div>
     </div>
 
     <script type="importmap">

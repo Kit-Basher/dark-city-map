@@ -3,6 +3,9 @@ import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/cont
 import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 
 const statusEl = document.getElementById('status');
+const districtNameEl = document.getElementById('district-name');
+const districtBodyEl = document.getElementById('district-body');
+const districtSwatchEl = document.getElementById('district-swatch');
 
 const container = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -81,6 +84,36 @@ const districtDefs = [
   { id: 'old_quarter', name: 'Old Quarter', color: 0xb7a6ff },
   { id: 'industrial_quarter', name: 'Industrial Quarter', color: 0xb0b0b0 },
 ];
+
+const districtDetails = {
+  pembroke: { tagline: 'Northern district.' },
+  little_york: { tagline: 'Western district.' },
+  le_grande: { tagline: 'Central-west district.' },
+  penn_square: { tagline: 'Civic and cultural hub.' },
+  downtown: { tagline: 'Commerce and nightlife.' },
+  wharf: { tagline: 'Docks and waterfront.' },
+  suplex: { tagline: 'Crossroads district.' },
+  hamptons: { tagline: 'East side district.' },
+  soho: { tagline: 'South-east district.' },
+  old_quarter: { tagline: 'Historic district.' },
+  industrial_quarter: { tagline: 'Factories and yards.' },
+};
+
+function setSelectedDistrict(def) {
+  if (!def) {
+    districtNameEl.textContent = 'No district selected';
+    districtBodyEl.textContent = 'Click a district to view details.';
+    districtSwatchEl.style.background = 'transparent';
+    return;
+  }
+
+  districtNameEl.textContent = def.name;
+  const details = districtDetails[def.id];
+  districtBodyEl.textContent = details?.tagline || '';
+
+  const hex = `#${def.color.toString(16).padStart(6, '0')}`;
+  districtSwatchEl.style.background = hex;
+}
 
 function loadSavedCenters() {
   try {
@@ -234,6 +267,8 @@ loader.load(
 
     const zones = {};
     const labels = {};
+    const zonesArray = [];
+    const defByZoneUuid = {};
 
     for (const d of districtDefs) {
       const zoneGeo = new THREE.CircleGeometry(baseZoneRadius, 64);
@@ -254,6 +289,8 @@ loader.load(
       zone.renderOrder = 10;
       districtsGroup.add(zone);
       zones[d.id] = zone;
+      zonesArray.push(zone);
+      defByZoneUuid[zone.uuid] = d;
 
       const label = makeTextSprite(d.name);
       label.position.set(centers[d.id].x, ground.position.y + baseZoneRadius * radiusScale * 0.18, centers[d.id].z);
@@ -264,6 +301,27 @@ loader.load(
     let activeIndex = 0;
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
+
+    const baseOpacity = 0.14;
+    const hoverOpacity = 0.22;
+    const selectedOpacity = 0.28;
+
+    let hoveredId = null;
+    let selectedId = null;
+
+    function applyZoneStyles() {
+      for (const d of districtDefs) {
+        const zone = zones[d.id];
+        if (!zone) continue;
+
+        const mat = zone.material;
+        if (!mat) continue;
+
+        if (selectedId === d.id) mat.opacity = selectedOpacity;
+        else if (hoveredId === d.id) mat.opacity = hoverOpacity;
+        else mat.opacity = baseOpacity;
+      }
+    }
 
     let statusResetTimer;
 
@@ -323,6 +381,54 @@ loader.load(
       if (e.key === 'n' || e.key === 'N') setActiveIndex(activeIndex + 1);
     }
 
+    let pointerDownPos = null;
+
+    function onPointerMove(e) {
+      if (editMode) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(zonesArray, false);
+      const hit = hits[0];
+
+      const nextHovered = hit ? defByZoneUuid[hit.object.uuid]?.id ?? null : null;
+      if (nextHovered === hoveredId) return;
+      hoveredId = nextHovered;
+      applyZoneStyles();
+    }
+
+    function onPointerDownSelect(e) {
+      if (editMode) return;
+      pointerDownPos = { x: e.clientX, y: e.clientY };
+    }
+
+    function onPointerUpSelect(e) {
+      if (editMode) return;
+      if (!pointerDownPos) return;
+
+      const dx = e.clientX - pointerDownPos.x;
+      const dy = e.clientY - pointerDownPos.y;
+      pointerDownPos = null;
+
+      if (Math.hypot(dx, dy) > 6) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(zonesArray, false);
+      const hit = hits[0];
+
+      const def = hit ? defByZoneUuid[hit.object.uuid] : null;
+      selectedId = def ? def.id : null;
+      setSelectedDistrict(def);
+      applyZoneStyles();
+    }
+
     function onPointerDown(e) {
       if (!editMode) return;
 
@@ -352,6 +458,12 @@ loader.load(
 
     window.addEventListener('keydown', onKeyDown);
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
+
+    setSelectedDistrict(null);
+    applyZoneStyles();
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerdown', onPointerDownSelect);
+    renderer.domElement.addEventListener('pointerup', onPointerUpSelect);
 
     updateEditHud();
   },
