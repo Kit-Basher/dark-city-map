@@ -50,6 +50,22 @@ const modelUrl = '/api/map.glb';
 
 let editMode = new URLSearchParams(window.location.search).get('edit') === '1';
 
+function loadRadiusScale() {
+  try {
+    const raw = window.localStorage.getItem('dc_district_radius_scale_v1');
+    if (!raw) return 1;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 1;
+    return n;
+  } catch {
+    return 1;
+  }
+}
+
+function saveRadiusScale(scale) {
+  window.localStorage.setItem('dc_district_radius_scale_v1', String(scale));
+}
+
 const districtDefs = [
   { id: 'pembroke', name: 'Pembroke', color: 0x5b8cff },
   { id: 'little_york', name: 'Little York', color: 0xff8a3d },
@@ -211,13 +227,14 @@ loader.load(
     const districtsGroup = new THREE.Group();
     scene.add(districtsGroup);
 
-    const zoneRadius = Math.max(adjustedSize.x, adjustedSize.z) * 0.14;
+    let radiusScale = loadRadiusScale();
+    const baseZoneRadius = Math.max(adjustedSize.x, adjustedSize.z) * 0.14;
 
     const zones = {};
     const labels = {};
 
     for (const d of districtDefs) {
-      const zoneGeo = new THREE.CircleGeometry(zoneRadius, 64);
+      const zoneGeo = new THREE.CircleGeometry(baseZoneRadius, 64);
       const zoneMat = new THREE.MeshBasicMaterial({
         color: d.color,
         transparent: true,
@@ -231,12 +248,13 @@ loader.load(
       const zone = new THREE.Mesh(zoneGeo, zoneMat);
       zone.rotation.x = -Math.PI / 2;
       zone.position.set(centers[d.id].x, ground.position.y + 0.25, centers[d.id].z);
+      zone.scale.set(radiusScale, radiusScale, 1);
       zone.renderOrder = 10;
       districtsGroup.add(zone);
       zones[d.id] = zone;
 
       const label = makeTextSprite(d.name);
-      label.position.set(centers[d.id].x, ground.position.y + zoneRadius * 0.18, centers[d.id].z);
+      label.position.set(centers[d.id].x, ground.position.y + baseZoneRadius * radiusScale * 0.18, centers[d.id].z);
       districtsGroup.add(label);
       labels[d.id] = label;
     }
@@ -245,12 +263,22 @@ loader.load(
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
+    let statusResetTimer;
+
+    function flashStatus(text) {
+      statusEl.textContent = text;
+      if (statusResetTimer) window.clearTimeout(statusResetTimer);
+      statusResetTimer = window.setTimeout(() => {
+        updateEditHud();
+      }, 1200);
+    }
+
     function updateEditHud() {
       if (!editMode) {
         statusEl.textContent = 'Loaded';
         return;
       }
-      statusEl.textContent = `Edit: click to set ${districtDefs[activeIndex].name} (N=next, E=exit)`;
+      statusEl.textContent = `Edit: click to set ${districtDefs[activeIndex].name} (N=next)`;
     }
 
     function setActiveIndex(i) {
@@ -267,10 +295,28 @@ loader.load(
     setEditMode(editMode);
 
     function onKeyDown(e) {
-      if (e.key === 'e' || e.key === 'E') {
-        setEditMode(!editMode);
+      if (e.key === '[' || e.key === '{') {
+        radiusScale = Math.max(0.3, Math.round((radiusScale - 0.05) * 100) / 100);
+        saveRadiusScale(radiusScale);
+        for (const d of districtDefs) {
+          zones[d.id].scale.set(radiusScale, radiusScale, 1);
+          labels[d.id].position.y = ground.position.y + baseZoneRadius * radiusScale * 0.18;
+        }
+        flashStatus(`Circles: ${Math.round(radiusScale * 100)}%`);
         return;
       }
+
+      if (e.key === ']' || e.key === '}') {
+        radiusScale = Math.min(3, Math.round((radiusScale + 0.05) * 100) / 100);
+        saveRadiusScale(radiusScale);
+        for (const d of districtDefs) {
+          zones[d.id].scale.set(radiusScale, radiusScale, 1);
+          labels[d.id].position.y = ground.position.y + baseZoneRadius * radiusScale * 0.18;
+        }
+        flashStatus(`Circles: ${Math.round(radiusScale * 100)}%`);
+        return;
+      }
+
       if (!editMode) return;
       if (e.key === 'n' || e.key === 'N') setActiveIndex(activeIndex + 1);
     }
@@ -290,7 +336,7 @@ loader.load(
       const d = districtDefs[activeIndex];
       centers[d.id] = { x: point.x, z: point.z };
       zones[d.id].position.set(point.x, ground.position.y + 0.25, point.z);
-      labels[d.id].position.set(point.x, ground.position.y + zoneRadius * 0.18, point.z);
+      labels[d.id].position.set(point.x, ground.position.y + baseZoneRadius * radiusScale * 0.18, point.z);
 
       const ndcX = ((point.x - adjustedMin.x) / (adjustedMax.x - adjustedMin.x)) * 2 - 1;
       const ndcZ = ((point.z - adjustedMin.z) / (adjustedMax.z - adjustedMin.z)) * 2 - 1;
