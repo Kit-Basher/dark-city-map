@@ -61,10 +61,73 @@
 
       #district-panel {
         position: fixed;
-        right: 16px;
+        left: 16px;
+        top: 72px;
         bottom: 16px;
-        width: min(360px, calc(100vw - 32px));
+        width: 280px;
+        max-width: calc(100vw - 32px);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
         pointer-events: auto;
+      }
+
+      #district-list {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 6px;
+        max-height: 220px;
+        overflow: auto;
+        padding-right: 4px;
+      }
+
+      .district-btn {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(11, 15, 20, 0.5);
+        color: #e7eef7;
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .district-btn:hover {
+        border-color: rgba(255, 255, 255, 0.16);
+        background: rgba(11, 15, 20, 0.75);
+      }
+
+      .district-btn[aria-current='true'] {
+        border-color: rgba(255, 255, 255, 0.28);
+        background: rgba(11, 15, 20, 0.9);
+      }
+
+      .pill {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        flex: 0 0 auto;
+      }
+
+      #pc-building-select {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(11, 15, 20, 0.75);
+        color: #e7eef7;
+        outline: none;
+      }
+
+      #pc-building-details {
+        font-size: 12px;
+        line-height: 1.45;
+        opacity: 0.9;
+        white-space: pre-line;
       }
 
       #district-panel .header {
@@ -120,11 +183,20 @@
     </div>
 
     <div class="panel" id="district-panel">
+      <div class="title">Districts</div>
+      <div id="district-list"></div>
+
+      <div class="title" style="margin-top: 6px">Selected</div>
       <div class="header">
         <div id="district-name">No district selected</div>
         <div id="district-swatch"></div>
       </div>
       <div id="district-body">Click a district to view details.</div>
+
+      <div class="title" style="margin-top: 6px">Local PC buildings</div>
+      <select id="pc-building-select"></select>
+      <div id="pc-building-details"></div>
+
       <div id="district-hint">Tip: hover to highlight · click to select</div>
     </div>
 

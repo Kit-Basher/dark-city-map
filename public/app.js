@@ -6,6 +6,9 @@ const statusEl = document.getElementById('status');
 const districtNameEl = document.getElementById('district-name');
 const districtBodyEl = document.getElementById('district-body');
 const districtSwatchEl = document.getElementById('district-swatch');
+const districtListEl = document.getElementById('district-list');
+const pcBuildingSelectEl = document.getElementById('pc-building-select');
+const pcBuildingDetailsEl = document.getElementById('pc-building-details');
 
 const container = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -14,7 +17,11 @@ scene.background = new THREE.Color(0x0b0f14);
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 50000);
 camera.position.set(0, 250, 450);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({
+  antialias: true,
+  powerPreference: 'high-performance',
+  logarithmicDepthBuffer: true,
+});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -60,9 +67,24 @@ const DISTRICT_RADIUS_OVERRIDES = {
   suplex: 0.4,
 };
 
+const localPcBuildings = [
+  { id: 'pc_001', name: 'PC Building (example)', districtId: 'downtown' },
+];
+
 function getDistrictRadiusScale(id, globalScale) {
   const override = DISTRICT_RADIUS_OVERRIDES[id];
   return Number.isFinite(override) ? override : globalScale;
+}
+
+function setSelectedPcBuilding(building) {
+  if (!pcBuildingDetailsEl) return;
+  if (!building) {
+    pcBuildingDetailsEl.textContent = '';
+    return;
+  }
+
+  const districtName = districtDefs.find((d) => d.id === building.districtId)?.name || 'Unknown district';
+  pcBuildingDetailsEl.textContent = `${building.name}\nDistrict: ${districtName}`;
 }
 
 function loadRadiusScale() {
@@ -266,6 +288,10 @@ loader.load(
     const maxDim = Math.max(adjustedSize.x, adjustedSize.y, adjustedSize.z);
     const fitDistance = maxDim * 1.1;
 
+    camera.near = Math.max(0.1, maxDim / 5000);
+    camera.far = Math.max(5000, maxDim * 30);
+    camera.updateProjectionMatrix();
+
     camera.position.set(0, fitDistance * 0.6, fitDistance);
     controls.target.set(0, 0, 0);
     controls.update();
@@ -353,6 +379,57 @@ loader.load(
 
     let hoveredId = null;
     let selectedId = null;
+
+    if (districtListEl) {
+      districtListEl.innerHTML = '';
+      for (const d of districtDefs) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'district-btn';
+        btn.setAttribute('aria-current', 'false');
+
+        const label = document.createElement('span');
+        label.textContent = d.name;
+        btn.appendChild(label);
+
+        const pill = document.createElement('span');
+        pill.className = 'pill';
+        pill.style.background = `#${d.color.toString(16).padStart(6, '0')}`;
+        btn.appendChild(pill);
+
+        btn.addEventListener('click', () => {
+          selectedId = d.id;
+          setSelectedDistrict(d);
+          applyZoneStyles();
+          for (const child of districtListEl.children) child.setAttribute('aria-current', 'false');
+          btn.setAttribute('aria-current', 'true');
+        });
+
+        districtListEl.appendChild(btn);
+      }
+    }
+
+    if (pcBuildingSelectEl) {
+      pcBuildingSelectEl.innerHTML = '';
+      const emptyOpt = document.createElement('option');
+      emptyOpt.value = '';
+      emptyOpt.textContent = 'Select a building…';
+      pcBuildingSelectEl.appendChild(emptyOpt);
+
+      for (const b of localPcBuildings) {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = b.name;
+        pcBuildingSelectEl.appendChild(opt);
+      }
+
+      pcBuildingSelectEl.addEventListener('change', () => {
+        const id = pcBuildingSelectEl.value;
+        const b = localPcBuildings.find((x) => x.id === id) || null;
+        setSelectedPcBuilding(b);
+      });
+      setSelectedPcBuilding(null);
+    }
 
     function applyZoneStyles() {
       for (const d of districtDefs) {
@@ -470,6 +547,18 @@ loader.load(
       selectedId = def ? def.id : null;
       setSelectedDistrict(def);
       applyZoneStyles();
+
+      if (districtListEl) {
+        for (const child of districtListEl.children) child.setAttribute('aria-current', 'false');
+        if (def) {
+          for (const child of districtListEl.children) {
+            if (child.textContent && child.textContent.includes(def.name)) {
+              child.setAttribute('aria-current', 'true');
+              break;
+            }
+          }
+        }
+      }
     }
 
     function onPointerDown(e) {
