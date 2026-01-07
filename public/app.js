@@ -84,6 +84,8 @@ const DISTRICT_RADIUS_OVERRIDES = {
   suplex: 0.4,
 };
 
+const DISTRICT_RADIUS_OVERRIDES_STORAGE_KEY = 'dc_district_radius_overrides_v1';
+
 let currentUser = null;
 
 async function fetchJson(url, opts = {}) {
@@ -200,6 +202,22 @@ function loadRadiusScale() {
 
 function saveRadiusScale(scale) {
   window.localStorage.setItem('dc_district_radius_scale_v1', String(scale));
+}
+
+function loadRadiusOverrides() {
+  try {
+    const raw = window.localStorage.getItem(DISTRICT_RADIUS_OVERRIDES_STORAGE_KEY);
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return {};
+    return obj;
+  } catch {
+    return {};
+  }
+}
+
+function saveRadiusOverrides(overrides) {
+  window.localStorage.setItem(DISTRICT_RADIUS_OVERRIDES_STORAGE_KEY, JSON.stringify(overrides));
 }
 
 const districtDefs = [
@@ -784,6 +802,7 @@ loader.load(
     scene.add(districtsGroup);
 
     let radiusScale = loadRadiusScale();
+    const radiusOverrides = loadRadiusOverrides();
     const baseZoneRadius = Math.max(adjustedSize.x, adjustedSize.z) * 0.14;
 
     const zones = {};
@@ -806,7 +825,8 @@ loader.load(
       const zone = new THREE.Mesh(zoneGeo, zoneMat);
       zone.rotation.x = -Math.PI / 2;
       zone.position.set(centers[d.id].x, ground.position.y + 0.25, centers[d.id].z);
-      const s = getDistrictRadiusScale(d.id, radiusScale);
+      const storedOverride = radiusOverrides && Number.isFinite(Number(radiusOverrides[d.id])) ? Number(radiusOverrides[d.id]) : null;
+      const s = Number.isFinite(storedOverride) ? storedOverride : getDistrictRadiusScale(d.id, radiusScale);
       zone.scale.set(s, s, 1);
       zone.renderOrder = 10;
       districtsGroup.add(zone);
@@ -895,7 +915,10 @@ loader.load(
         statusEl.textContent = 'Loaded';
         return;
       }
-      statusEl.textContent = `Edit: click to set ${districtDefs[activeIndex].name} (N=next)`;
+      const name = selectedId ? districtDefs.find((d) => d.id === selectedId)?.name : null;
+      statusEl.textContent = name
+        ? `Edit: ${name} (drag to move, drag edge to resize)`
+        : 'Edit: click a circle to select (drag to move, drag edge to resize)';
     }
 
     function setActiveIndex(i) {
@@ -912,23 +935,26 @@ loader.load(
     setEditMode(editMode);
 
     function onKeyDown(e) {
-      if (e.key === '[' || e.key === '{') {
-        radiusScale = Math.max(0.3, Math.round((radiusScale - 0.05) * 100) / 100);
-        saveRadiusScale(radiusScale);
-        for (const d of districtDefs) {
-          const s = getDistrictRadiusScale(d.id, radiusScale);
-          zones[d.id].scale.set(s, s, 1);
-          labels[d.id].position.y = ground.position.y + baseZoneRadius * s * 0.18;
-        }
-        flashStatus(`Circles: ${Math.round(radiusScale * 100)}%`);
-        return;
-      }
+      if (e.key === '[' || e.key === '{' || e.key === ']' || e.key === '}') {
+        const dir = (e.key === '[' || e.key === '{') ? -1 : 1;
+        const step = 0.05;
 
-      if (e.key === ']' || e.key === '}') {
-        radiusScale = Math.min(3, Math.round((radiusScale + 0.05) * 100) / 100);
+        if (editMode && selectedId) {
+          const current = zones[selectedId]?.scale?.x || getDistrictRadiusScale(selectedId, radiusScale);
+          const next = THREE.MathUtils.clamp(Math.round((current + dir * step) * 100) / 100, 0.25, 3);
+          radiusOverrides[selectedId] = next;
+          saveRadiusOverrides(radiusOverrides);
+          zones[selectedId].scale.set(next, next, 1);
+          labels[selectedId].position.y = ground.position.y + baseZoneRadius * next * 0.18;
+          flashStatus(`Circle: ${Math.round(next * 100)}%`);
+          return;
+        }
+
+        radiusScale = THREE.MathUtils.clamp(Math.round((radiusScale + dir * step) * 100) / 100, 0.3, 3);
         saveRadiusScale(radiusScale);
         for (const d of districtDefs) {
-          const s = getDistrictRadiusScale(d.id, radiusScale);
+          const override = radiusOverrides && Number.isFinite(Number(radiusOverrides[d.id])) ? Number(radiusOverrides[d.id]) : null;
+          const s = Number.isFinite(override) ? override : getDistrictRadiusScale(d.id, radiusScale);
           zones[d.id].scale.set(s, s, 1);
           labels[d.id].position.y = ground.position.y + baseZoneRadius * s * 0.18;
         }
@@ -1084,6 +1110,50 @@ loader.load(
       }
     }
 
+    const dragState = {
+      mode: null,
+      districtId: null,
+      grabOffset: null,
+    };
+
+    function persistCenter(districtId, point) {
+      const ndcX = ((point.x - adjustedMin.x) / (adjustedMax.x - adjustedMin.x)) * 2 - 1;
+      const ndcZ = ((point.z - adjustedMin.z) / (adjustedMax.z - adjustedMin.z)) * 2 - 1;
+      const toSave = loadSavedCenters() || {};
+      toSave[districtId] = { x: ndcX, z: ndcZ };
+      saveCenters(toSave);
+    }
+
+    function applyCenterAndLabel(districtId, x, z) {
+      centers[districtId] = { x, z };
+      const zone = zones[districtId];
+      if (zone) zone.position.set(x, ground.position.y + 0.25, z);
+      const s = zone?.scale?.x || getDistrictRadiusScale(districtId, radiusScale);
+      const label = labels[districtId];
+      if (label) label.position.set(x, ground.position.y + baseZoneRadius * s * 0.18, z);
+    }
+
+    function setSelectedDistrictInUi(def) {
+      selectedId = def ? def.id : null;
+      setSelectedDistrict(def);
+      updatePcDropdownForSelectedDistrict();
+      applyZoneStyles();
+
+      if (districtListEl) {
+        for (const child of districtListEl.children) child.setAttribute('aria-current', 'false');
+        if (def) {
+          for (const child of districtListEl.children) {
+            if (child.textContent && child.textContent.includes(def.name)) {
+              child.setAttribute('aria-current', 'true');
+              break;
+            }
+          }
+        }
+      }
+
+      updateEditHud();
+    }
+
     function onPointerDown(e) {
       if (!editMode) return;
 
@@ -1092,28 +1162,86 @@ loader.load(
       mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
 
       raycaster.setFromCamera(mouse, camera);
-      const hits = raycaster.intersectObject(ground, false);
-      if (!hits.length) return;
 
-      const point = hits[0].point;
-      const d = districtDefs[activeIndex];
-      centers[d.id] = { x: point.x, z: point.z };
-      zones[d.id].position.set(point.x, ground.position.y + 0.25, point.z);
-      const s = getDistrictRadiusScale(d.id, radiusScale);
-      labels[d.id].position.set(point.x, ground.position.y + baseZoneRadius * s * 0.18, point.z);
+      const zoneHits = raycaster.intersectObjects(zonesArray, false);
+      if (!zoneHits.length) return;
 
-      const ndcX = ((point.x - adjustedMin.x) / (adjustedMax.x - adjustedMin.x)) * 2 - 1;
-      const ndcZ = ((point.z - adjustedMin.z) / (adjustedMax.z - adjustedMin.z)) * 2 - 1;
+      const hit = zoneHits[0];
+      const def = defByZoneUuid[hit.object.uuid];
+      if (!def) return;
 
-      const toSave = loadSavedCenters() || {};
-      toSave[d.id] = { x: ndcX, z: ndcZ };
-      saveCenters(toSave);
+      setSelectedDistrictInUi(def);
 
-      setActiveIndex(activeIndex + 1);
+      const groundHits = raycaster.intersectObject(ground, false);
+      if (!groundHits.length) return;
+      const point = groundHits[0].point;
+
+      const cx = centers[def.id].x;
+      const cz = centers[def.id].z;
+      const dist = Math.hypot(point.x - cx, point.z - cz);
+      const currentScale = zones[def.id]?.scale?.x || getDistrictRadiusScale(def.id, radiusScale);
+      const edge = baseZoneRadius * currentScale;
+      const edgeBand = Math.max(1.5, edge * 0.08);
+      const isResize = Math.abs(dist - edge) <= edgeBand;
+
+      dragState.mode = isResize ? 'resize' : 'move';
+      dragState.districtId = def.id;
+      dragState.grabOffset = isResize ? null : { x: cx - point.x, z: cz - point.z };
+      renderer.domElement.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    }
+
+    function onPointerMoveEdit(e) {
+      if (!editMode) return;
+      if (!dragState.mode || !dragState.districtId) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+      raycaster.setFromCamera(mouse, camera);
+
+      const groundHits = raycaster.intersectObject(ground, false);
+      if (!groundHits.length) return;
+
+      const p = groundHits[0].point;
+      const districtId = dragState.districtId;
+
+      if (dragState.mode === 'move' && dragState.grabOffset) {
+        const nx = p.x + dragState.grabOffset.x;
+        const nz = p.z + dragState.grabOffset.z;
+        applyCenterAndLabel(districtId, nx, nz);
+        persistCenter(districtId, { x: nx, z: nz });
+        return;
+      }
+
+      if (dragState.mode === 'resize') {
+        const cx = centers[districtId].x;
+        const cz = centers[districtId].z;
+        const dist = Math.max(0.01, Math.hypot(p.x - cx, p.z - cz));
+        const nextScale = THREE.MathUtils.clamp(Math.round((dist / baseZoneRadius) * 100) / 100, 0.25, 3);
+        radiusOverrides[districtId] = nextScale;
+        saveRadiusOverrides(radiusOverrides);
+        zones[districtId].scale.set(nextScale, nextScale, 1);
+        labels[districtId].position.y = ground.position.y + baseZoneRadius * nextScale * 0.18;
+      }
+    }
+
+    function onPointerUpEdit(e) {
+      if (!editMode) return;
+      if (!dragState.mode) return;
+      try {
+        renderer.domElement.releasePointerCapture(e.pointerId);
+      } catch {
+      }
+      dragState.mode = null;
+      dragState.districtId = null;
+      dragState.grabOffset = null;
     }
 
     window.addEventListener('keydown', onKeyDown);
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointermove', onPointerMoveEdit);
+    renderer.domElement.addEventListener('pointerup', onPointerUpEdit);
 
     setSelectedDistrict(null);
     applyZoneStyles();
