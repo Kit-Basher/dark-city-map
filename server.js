@@ -96,6 +96,50 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: 'Unauthorized' });
 }
 
+const DISTRICT_CONFIG_DOC_ID = 'districts_v1';
+
+app.get('/api/districts/config', async (req, res) => {
+  try {
+    const db = await getDb();
+    const doc = await db.collection('map_config').findOne({ _id: DISTRICT_CONFIG_DOC_ID });
+    res.json({ config: doc ? doc.config : null });
+  } catch (err) {
+    res.status(500).json({ error: err?.message || 'Server error' });
+  }
+});
+
+app.put('/api/districts/config', requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const config = body.config && typeof body.config === 'object' ? body.config : null;
+    if (!config) {
+      res.status(400).json({ error: 'config is required' });
+      return;
+    }
+
+    const update = {
+      _id: DISTRICT_CONFIG_DOC_ID,
+      config,
+      updatedAt: new Date(),
+      updatedBy: {
+        id: req.user.id,
+        username: req.user.username,
+      },
+    };
+
+    const db = await getDb();
+    await db.collection('map_config').updateOne(
+      { _id: DISTRICT_CONFIG_DOC_ID },
+      { $set: update },
+      { upsert: true }
+    );
+
+    res.json({ ok: true, config });
+  } catch (err) {
+    res.status(500).json({ error: err?.message || 'Server error' });
+  }
+});
+
 app.get('/api/me', (req, res) => {
   if (req.isAuthenticated && req.isAuthenticated()) {
     res.json({ user: req.user });

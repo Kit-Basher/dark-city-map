@@ -19,6 +19,7 @@ const pinMoveEl = document.getElementById('pin-move');
 const pinSaveEl = document.getElementById('pin-save');
 const pinDeleteEl = document.getElementById('pin-delete');
 const pinCloseEl = document.getElementById('pin-close');
+const districtSaveEl = document.getElementById('district-save');
 
 const container = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -121,6 +122,23 @@ async function refreshMe() {
     currentUser = null;
   }
   return currentUser;
+}
+
+async function loadDistrictConfigFromServer() {
+  try {
+    const data = await fetchJson('/api/districts/config');
+    return data?.config || null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveDistrictConfigToServer(config) {
+  const data = await fetchJson('/api/districts/config', {
+    method: 'PUT',
+    body: JSON.stringify({ config }),
+  });
+  return data?.config || null;
 }
 
 function redirectToDiscordLogin() {
@@ -774,6 +792,19 @@ loader.load(
       pinCloseEl.addEventListener('click', () => setSelectedPin(null));
     }
 
+    const serverConfig = await loadDistrictConfigFromServer();
+    if (serverConfig) {
+      if (serverConfig.centers && typeof serverConfig.centers === 'object') {
+        saveCenters(serverConfig.centers);
+      }
+      if (Number.isFinite(Number(serverConfig.radiusScale))) {
+        saveRadiusScale(Number(serverConfig.radiusScale));
+      }
+      if (serverConfig.radiusOverrides && typeof serverConfig.radiusOverrides === 'object') {
+        saveRadiusOverrides(serverConfig.radiusOverrides);
+      }
+    }
+
     const defaultCentersNdc = {
       pembroke: { x: -0.269830844714094, z: 0.9101437867080426 },
       little_york: { x: 0.33254451228022464, z: 0.606756677576358 },
@@ -929,6 +960,7 @@ loader.load(
     function setEditMode(on) {
       editMode = on;
       controls.enabled = !editMode;
+      if (districtSaveEl) districtSaveEl.style.display = editMode ? '' : 'none';
       updateEditHud();
     }
 
@@ -1236,6 +1268,50 @@ loader.load(
       dragState.mode = null;
       dragState.districtId = null;
       dragState.grabOffset = null;
+    }
+
+    function buildCentersNdcForSave() {
+      const out = {};
+      for (const d of districtDefs) {
+        const c = centers[d.id];
+        if (!c) continue;
+        const ndcX = ((c.x - adjustedMin.x) / (adjustedMax.x - adjustedMin.x)) * 2 - 1;
+        const ndcZ = ((c.z - adjustedMin.z) / (adjustedMax.z - adjustedMin.z)) * 2 - 1;
+        out[d.id] = { x: ndcX, z: ndcZ };
+      }
+      return out;
+    }
+
+    if (districtSaveEl) {
+      districtSaveEl.addEventListener('click', async () => {
+        if (!editMode) return;
+        const me = await requireLoginOrRedirect();
+        if (!me) return;
+
+        try {
+          districtSaveEl.disabled = true;
+          statusEl.textContent = 'Saving districts…';
+
+          const centersNdc = buildCentersNdcForSave();
+          const overrides = loadRadiusOverrides();
+          const config = {
+            centers: centersNdc,
+            radiusScale: loadRadiusScale(),
+            radiusOverrides: overrides,
+          };
+
+          await saveDistrictConfigToServer(config);
+          statusEl.textContent = 'Saved districts';
+        } catch (err) {
+          if (err?.status === 401) {
+            redirectToDiscordLogin();
+            return;
+          }
+          statusEl.textContent = err?.message || 'Failed to save districts';
+        } finally {
+          districtSaveEl.disabled = false;
+        }
+      });
     }
 
     window.addEventListener('keydown', onKeyDown);
