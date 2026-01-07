@@ -10,8 +10,12 @@
     "upload:glb": "node scripts/upload-glb.js"
   },
   "dependencies": {
+    "connect-mongo": "^5.1.0",
     "express": "^4.19.2",
-    "mongodb": "^6.3.0"
+    "express-session": "^1.17.3",
+    "mongodb": "^6.3.0",
+    "passport": "^0.7.0",
+    "passport-discord": "^0.1.4"
   },
   "engines": {
     "node": ">=18"

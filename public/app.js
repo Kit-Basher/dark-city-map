@@ -84,22 +84,80 @@ const DISTRICT_RADIUS_OVERRIDES = {
   suplex: 0.4,
 };
 
-const PINS_STORAGE_KEY = 'dc_pins_v1';
+let currentUser = null;
 
-function loadPins() {
+async function fetchJson(url, opts = {}) {
+  const res = await fetch(url, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
+    credentials: 'include',
+  });
+  let data = null;
   try {
-    const raw = window.localStorage.getItem(PINS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
+    data = await res.json();
   } catch {
-    return [];
+    data = null;
   }
+  if (!res.ok) {
+    const msg = data?.error || `Request failed (${res.status})`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
 }
 
-function savePins(items) {
-  window.localStorage.setItem(PINS_STORAGE_KEY, JSON.stringify(items));
+async function refreshMe() {
+  try {
+    const data = await fetchJson('/api/me');
+    currentUser = data?.user || null;
+  } catch {
+    currentUser = null;
+  }
+  return currentUser;
+}
+
+function redirectToDiscordLogin() {
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  window.location.href = `/auth/discord?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+async function requireLoginOrRedirect() {
+  const me = await refreshMe();
+  if (me) return me;
+  redirectToDiscordLogin();
+  return null;
+}
+
+async function loadPinsFromServer() {
+  const data = await fetchJson('/api/pins');
+  return Array.isArray(data?.pins) ? data.pins : [];
+}
+
+async function createPinOnServer(pin) {
+  const data = await fetchJson('/api/pins', {
+    method: 'POST',
+    body: JSON.stringify(pin),
+  });
+  return data?.pin || null;
+}
+
+async function updatePinOnServer(id, patch) {
+  const data = await fetchJson(`/api/pins/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+  return data?.pin || null;
+}
+
+async function deletePinOnServer(id) {
+  await fetchJson(`/api/pins/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 }
 
 function makeId() {
@@ -359,7 +417,7 @@ statusEl.textContent = 'Loading model…';
 
 loader.load(
   modelUrl,
-  (gltf) => {
+  async (gltf) => {
     const root = gltf.scene;
     scene.add(root);
 
@@ -416,7 +474,7 @@ loader.load(
 
     const pinMeshes = [];
     const pinIdByUuid = {};
-    let pins = loadPins();
+    let pins = [];
     let selectedPinId = null;
     let placingPinDraft = null;
     let movingPinId = null;
@@ -528,6 +586,11 @@ loader.load(
       if (pin) {
         setSelectedPcBuilding({ name: pin.name || 'Pin', districtId: pin.districtId || '' });
       }
+
+      const canEdit = !!(pin && currentUser && pin.ownerId && pin.ownerId === currentUser.id);
+      if (pinMoveEl) pinMoveEl.disabled = !canEdit;
+      if (pinSaveEl) pinSaveEl.disabled = !canEdit;
+      if (pinDeleteEl) pinDeleteEl.disabled = !canEdit;
     }
 
     function pointIsInZone(point, districtId) {
@@ -586,11 +649,15 @@ loader.load(
       };
     }
 
+    await refreshMe();
+    pins = await loadPinsFromServer();
     refreshPinDistrictOptions();
     rebuildPins();
 
     if (addPinEl) {
-      addPinEl.addEventListener('click', () => {
+      addPinEl.addEventListener('click', async () => {
+        const me = await requireLoginOrRedirect();
+        if (!me) return;
         placingPinDraft = {
           id: makeId(),
           name: '',
@@ -604,38 +671,84 @@ loader.load(
     }
 
     if (pinMoveEl) {
-      pinMoveEl.addEventListener('click', () => {
+      pinMoveEl.addEventListener('click', async () => {
+        const me = await requireLoginOrRedirect();
+        if (!me) return;
         if (!selectedPinId) return;
+        const pin = getPinById(selectedPinId);
+        if (!pin || pin.ownerId !== me.id) {
+          statusEl.textContent = 'You can only move your own pins';
+          return;
+        }
         movingPinId = selectedPinId;
         statusEl.textContent = 'Click the map to move pin…';
       });
     }
 
     if (pinSaveEl) {
-      pinSaveEl.addEventListener('click', () => {
+      pinSaveEl.addEventListener('click', async () => {
+        const me = await requireLoginOrRedirect();
+        if (!me) return;
         if (!selectedPinId) return;
         const pin = getPinById(selectedPinId);
         if (!pin) return;
+        if (pin.ownerId !== me.id) {
+          statusEl.textContent = 'You can only edit your own pins';
+          return;
+        }
         pin.name = pinNameEl?.value?.trim() || '';
         pin.type = pinTypeEl?.value?.trim() || '';
         pin.desc = pinDescEl?.value || '';
         pin.districtId = pinDistrictEl?.value || '';
-        savePins(pins);
-        updatePcDropdownForSelectedDistrict();
-        statusEl.textContent = 'Saved pin';
+
+        try {
+          const updated = await updatePinOnServer(pin.id, {
+            name: pin.name,
+            type: pin.type,
+            desc: pin.desc,
+            districtId: pin.districtId,
+          });
+          if (updated) {
+            const idx = pins.findIndex((p) => p.id === updated.id);
+            if (idx >= 0) pins[idx] = updated;
+          }
+          updatePcDropdownForSelectedDistrict();
+          statusEl.textContent = 'Saved pin';
+        } catch (err) {
+          if (err?.status === 401) {
+            redirectToDiscordLogin();
+            return;
+          }
+          statusEl.textContent = err?.message || 'Failed to save pin';
+        }
       });
     }
 
     if (pinDeleteEl) {
-      pinDeleteEl.addEventListener('click', () => {
+      pinDeleteEl.addEventListener('click', async () => {
+        const me = await requireLoginOrRedirect();
+        if (!me) return;
         if (!selectedPinId) return;
-        pins = pins.filter((p) => p.id !== selectedPinId);
-        savePins(pins);
-        selectedPinId = null;
-        setSelectedPin(null);
-        rebuildPins();
-        updatePcDropdownForSelectedDistrict();
-        statusEl.textContent = 'Deleted pin';
+        const pin = getPinById(selectedPinId);
+        if (!pin || pin.ownerId !== me.id) {
+          statusEl.textContent = 'You can only delete your own pins';
+          return;
+        }
+        try {
+          await deletePinOnServer(selectedPinId);
+          pins = pins.filter((p) => p.id !== selectedPinId);
+          selectedPinId = null;
+          setSelectedPin(null);
+          rebuildPins();
+          updatePcDropdownForSelectedDistrict();
+          statusEl.textContent = 'Deleted pin';
+        } catch (err) {
+          if (err?.status === 401) {
+            redirectToDiscordLogin();
+            return;
+          }
+          statusEl.textContent = err?.message || 'Failed to delete pin';
+        }
       });
     }
 
@@ -879,13 +992,30 @@ loader.load(
         if (placingPinDraft) {
           placingPinDraft.pos = { x: p.x, y: p.y, z: p.z };
           placingPinDraft.districtId = autoDistrictForPoint(p);
-          pins.push(placingPinDraft);
-          savePins(pins);
-          rebuildPins();
-          setSelectedPin(placingPinDraft.id);
-          updatePcDropdownForSelectedDistrict();
-          statusEl.textContent = 'Placed pin';
-          placingPinDraft = null;
+
+          requireLoginOrRedirect().then(async (me) => {
+            if (!me) return;
+            try {
+              const created = await createPinOnServer(placingPinDraft);
+              if (created) {
+                pins.push(created);
+                rebuildPins();
+                setSelectedPin(created.id);
+                updatePcDropdownForSelectedDistrict();
+                statusEl.textContent = 'Placed pin';
+              } else {
+                statusEl.textContent = 'Failed to create pin';
+              }
+            } catch (err) {
+              if (err?.status === 401) {
+                redirectToDiscordLogin();
+                return;
+              }
+              statusEl.textContent = err?.message || 'Failed to create pin';
+            } finally {
+              placingPinDraft = null;
+            }
+          });
           return;
         }
 
@@ -894,11 +1024,33 @@ loader.load(
           if (!pin) return;
           pin.pos = { x: p.x, y: p.y, z: p.z };
           pin.districtId = pin.districtId || autoDistrictForPoint(p);
-          savePins(pins);
-          rebuildPins();
-          updatePcDropdownForSelectedDistrict();
-          statusEl.textContent = 'Moved pin';
-          movingPinId = null;
+
+          requireLoginOrRedirect().then(async (me) => {
+            if (!me) return;
+            if (pin.ownerId !== me.id) {
+              statusEl.textContent = 'You can only move your own pins';
+              movingPinId = null;
+              return;
+            }
+            try {
+              const updated = await updatePinOnServer(pin.id, { pos: pin.pos, districtId: pin.districtId });
+              if (updated) {
+                const idx = pins.findIndex((x) => x.id === updated.id);
+                if (idx >= 0) pins[idx] = updated;
+              }
+              rebuildPins();
+              updatePcDropdownForSelectedDistrict();
+              statusEl.textContent = 'Moved pin';
+            } catch (err) {
+              if (err?.status === 401) {
+                redirectToDiscordLogin();
+                return;
+              }
+              statusEl.textContent = err?.message || 'Failed to move pin';
+            } finally {
+              movingPinId = null;
+            }
+          });
           return;
         }
       }
