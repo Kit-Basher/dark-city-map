@@ -201,22 +201,22 @@ function makeTextSprite(text) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
 
-  const fontSize = 64;
-  ctx.font = `700 ${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+  const fontSize = 96;
+  ctx.font = `800 ${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
 
   const metrics = ctx.measureText(text);
-  const paddingX = 42;
-  const paddingY = 26;
+  const paddingX = 56;
+  const paddingY = 34;
 
   canvas.width = Math.ceil(metrics.width + paddingX * 2);
   canvas.height = Math.ceil(fontSize + paddingY * 2);
 
-  ctx.font = `700 ${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+  ctx.font = `800 ${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
   ctx.textBaseline = 'middle';
 
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-  ctx.lineWidth = 4;
+  ctx.fillStyle = 'rgba(0,0,0,0.62)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = 6;
   ctx.beginPath();
   const r = 26;
   const w = canvas.width;
@@ -234,9 +234,9 @@ function makeTextSprite(text) {
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  ctx.shadowColor = 'rgba(0,0,0,0.65)';
-  ctx.shadowBlur = 10;
+  ctx.fillStyle = 'rgba(255,255,255,0.96)';
+  ctx.shadowColor = 'rgba(0,0,0,0.72)';
+  ctx.shadowBlur = 16;
   ctx.fillText(text, paddingX, h / 2);
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -246,11 +246,72 @@ function makeTextSprite(text) {
 
   const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
   const sprite = new THREE.Sprite(material);
-  const scale = 0.75;
+  const scale = 1.15;
   sprite.scale.set((canvas.width / 10) * scale, (canvas.height / 10) * scale, 1);
   sprite.renderOrder = 999;
   return sprite;
 }
+
+const clock = new THREE.Clock();
+
+const keyState = {
+  forward: false,
+  back: false,
+  left: false,
+  right: false,
+  up: false,
+  down: false,
+  fast: false,
+};
+
+function isTypingInUi() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
+function setKey(e, on) {
+  if (isTypingInUi()) return;
+
+  switch (e.code) {
+    case 'KeyW':
+      keyState.forward = on;
+      break;
+    case 'KeyS':
+      keyState.back = on;
+      break;
+    case 'KeyA':
+      keyState.left = on;
+      break;
+    case 'KeyD':
+      keyState.right = on;
+      break;
+    case 'KeyQ':
+      keyState.down = on;
+      break;
+    case 'KeyE':
+      keyState.up = on;
+      break;
+    case 'Space':
+      keyState.up = on;
+      break;
+    case 'ControlLeft':
+    case 'ControlRight':
+      keyState.down = on;
+      break;
+    case 'ShiftLeft':
+    case 'ShiftRight':
+      keyState.fast = on;
+      break;
+    default:
+      return;
+  }
+  e.preventDefault();
+}
+
+window.addEventListener('keydown', (e) => setKey(e, true), { passive: false });
+window.addEventListener('keyup', (e) => setKey(e, false), { passive: false });
 
 statusEl.textContent = 'Loading model…';
 
@@ -621,6 +682,31 @@ window.addEventListener('resize', onResize);
 
 function animate() {
   requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  const moveSpeed = (keyState.fast ? 520 : 260) * dt;
+  const moveUpSpeed = (keyState.fast ? 420 : 220) * dt;
+
+  if (!isTypingInUi() && (keyState.forward || keyState.back || keyState.left || keyState.right || keyState.up || keyState.down)) {
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+
+    const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize().negate();
+    const delta = new THREE.Vector3();
+
+    if (keyState.forward) delta.addScaledVector(forward, moveSpeed);
+    if (keyState.back) delta.addScaledVector(forward, -moveSpeed);
+    if (keyState.right) delta.addScaledVector(right, moveSpeed);
+    if (keyState.left) delta.addScaledVector(right, -moveSpeed);
+    if (keyState.up) delta.y += moveUpSpeed;
+    if (keyState.down) delta.y -= moveUpSpeed;
+
+    camera.position.add(delta);
+    controls.target.add(delta);
+  }
+
   controls.update();
   renderer.render(scene, camera);
 }
