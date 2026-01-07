@@ -39,7 +39,8 @@ controls.minDistance = 1;
 controls.maxDistance = 8000;
 
 const districtLabelSprites = [];
-let districtLabelRefDistance = 800;
+const LABEL_DISTANCE_EXP = 1.15;
+const LABEL_BASE_BOOST = 2.25;
 
 const hemi = new THREE.HemisphereLight(0xdde8ff, 0x0b0f14, 1.15);
 hemi.position.set(0, 400, 0);
@@ -360,7 +361,7 @@ loader.load(
     controls.target.set(0, 0, 0);
     controls.update();
 
-    districtLabelRefDistance = camera.position.distanceTo(controls.target);
+    const initialCameraDistance = camera.position.distanceTo(controls.target);
 
     const groundSize = Math.max(adjustedSize.x, adjustedSize.z) * 1.25;
     const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
@@ -434,6 +435,7 @@ loader.load(
       districtsGroup.add(label);
       labels[d.id] = label;
       label.userData.baseScale = label.scale.clone();
+      label.userData.refDistance = initialCameraDistance;
       districtLabelSprites.push(label);
     }
 
@@ -691,12 +693,15 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
 
-  const dist = camera.position.distanceTo(controls.target);
-  const labelScaleFactor = THREE.MathUtils.clamp(dist / Math.max(1, districtLabelRefDistance), 0.75, 3.25);
   for (const s of districtLabelSprites) {
     const base = s.userData.baseScale;
-    if (!base) continue;
-    s.scale.set(base.x * labelScaleFactor, base.y * labelScaleFactor, base.z);
+    const ref = s.userData.refDistance;
+    if (!base || !ref) continue;
+
+    const d = s.position.distanceTo(camera.position);
+    const ratio = Math.max(0.001, d / ref);
+    const factor = THREE.MathUtils.clamp(LABEL_BASE_BOOST * Math.pow(ratio, LABEL_DISTANCE_EXP), 0.9, 12);
+    s.scale.set(base.x * factor, base.y * factor, base.z);
   }
 
   const moveSpeed = (keyState.fast ? 520 : 260) * dt;
