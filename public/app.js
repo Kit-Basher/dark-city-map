@@ -9,14 +9,16 @@ const districtSwatchEl = document.getElementById('district-swatch');
 const districtListEl = document.getElementById('district-list');
 const pcBuildingSelectEl = document.getElementById('pc-building-select');
 const pcBuildingDetailsEl = document.getElementById('pc-building-details');
-const locationsListEl = document.getElementById('locations-list');
-const locationNameEl = document.getElementById('location-name');
-const locationTypeEl = document.getElementById('location-type');
-const locationDescEl = document.getElementById('location-desc');
-const locationCreatePlaceEl = document.getElementById('location-create-place');
-const locationMoveEl = document.getElementById('location-move');
-const locationSaveEl = document.getElementById('location-save');
-const locationDeleteEl = document.getElementById('location-delete');
+const addPinEl = document.getElementById('add-pin');
+const pinPanelEl = document.getElementById('pin-panel');
+const pinNameEl = document.getElementById('pin-name');
+const pinTypeEl = document.getElementById('pin-type');
+const pinDistrictEl = document.getElementById('pin-district');
+const pinDescEl = document.getElementById('pin-desc');
+const pinMoveEl = document.getElementById('pin-move');
+const pinSaveEl = document.getElementById('pin-save');
+const pinDeleteEl = document.getElementById('pin-delete');
+const pinCloseEl = document.getElementById('pin-close');
 
 const container = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -82,15 +84,11 @@ const DISTRICT_RADIUS_OVERRIDES = {
   suplex: 0.4,
 };
 
-const localPcBuildings = [
-  { id: 'pc_001', name: 'PC Building (example)', districtId: 'downtown' },
-];
+const PINS_STORAGE_KEY = 'dc_pins_v1';
 
-const LOCATIONS_STORAGE_KEY = 'dc_locations_v1';
-
-function loadLocations() {
+function loadPins() {
   try {
-    const raw = window.localStorage.getItem(LOCATIONS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(PINS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -100,12 +98,12 @@ function loadLocations() {
   }
 }
 
-function saveLocations(items) {
-  window.localStorage.setItem(LOCATIONS_STORAGE_KEY, JSON.stringify(items));
+function savePins(items) {
+  window.localStorage.setItem(PINS_STORAGE_KEY, JSON.stringify(items));
 }
 
 function makeId() {
-  return `loc_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+  return `pin_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
 }
 
 function getDistrictRadiusScale(id, globalScale) {
@@ -120,8 +118,14 @@ function setSelectedPcBuilding(building) {
     return;
   }
 
-  const districtName = districtDefs.find((d) => d.id === building.districtId)?.name || 'Unknown district';
-  pcBuildingDetailsEl.textContent = `${building.name}\nDistrict: ${districtName}`;
+  const districtName = districtDefs.find((d) => d.id === building.districtId)?.name || '';
+  const suffix = districtName ? `\nDistrict: ${districtName}` : '';
+  pcBuildingDetailsEl.textContent = `${building.name}${suffix}`;
+}
+
+function setPinPanelOpen(open) {
+  if (!pinPanelEl) return;
+  pinPanelEl.setAttribute('data-open', open ? 'true' : 'false');
 }
 
 function loadRadiusScale() {
@@ -410,151 +414,207 @@ loader.load(
     markerGroup.renderOrder = 50;
     scene.add(markerGroup);
 
-    const markerMeshes = [];
-    const locationByUuid = {};
-    let locations = loadLocations();
-    let selectedLocationId = null;
-    let placingMode = null;
-    let placingDraft = null;
+    const pinMeshes = [];
+    const pinIdByUuid = {};
+    let pins = loadPins();
+    let selectedPinId = null;
+    let placingPinDraft = null;
+    let movingPinId = null;
 
-    function clearMarkers() {
-      for (const m of markerMeshes) markerGroup.remove(m);
-      markerMeshes.length = 0;
-      for (const k of Object.keys(locationByUuid)) delete locationByUuid[k];
+    function clearPins() {
+      for (const m of pinMeshes) markerGroup.remove(m);
+      pinMeshes.length = 0;
+      for (const k of Object.keys(pinIdByUuid)) delete pinIdByUuid[k];
     }
 
-    function addMarkerForLocation(loc) {
-      const geom = new THREE.ConeGeometry(6, 18, 10);
-      const mat = new THREE.MeshStandardMaterial({ color: 0xfff2b2, emissive: 0x1a1a1a, roughness: 0.4, metalness: 0.0 });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(loc.pos.x, loc.pos.y + 12, loc.pos.z);
-      mesh.castShadow = false;
-      mesh.receiveShadow = false;
-      mesh.renderOrder = 50;
-      markerGroup.add(mesh);
-      markerMeshes.push(mesh);
-      locationByUuid[mesh.uuid] = loc.id;
-      return mesh;
+    function makeGlowTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+      const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      g.addColorStop(0.0, 'rgba(255, 245, 200, 1)');
+      g.addColorStop(0.2, 'rgba(255, 245, 200, 0.95)');
+      g.addColorStop(0.55, 'rgba(255, 180, 90, 0.35)');
+      g.addColorStop(1.0, 'rgba(255, 180, 90, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 128, 128);
+      const t = new THREE.CanvasTexture(canvas);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
     }
 
-    function rebuildMarkers() {
-      clearMarkers();
-      for (const loc of locations) {
-        if (!loc || !loc.pos) continue;
-        addMarkerForLocation(loc);
+    const glowTexture = makeGlowTexture();
+
+    function addPinMesh(pin) {
+      const mat = new THREE.SpriteMaterial({
+        map: glowTexture,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        opacity: 0.95,
+      });
+      const sprite = new THREE.Sprite(mat);
+      sprite.position.set(pin.pos.x, pin.pos.y + 10, pin.pos.z);
+      sprite.scale.set(26, 26, 1);
+      sprite.renderOrder = 999;
+      markerGroup.add(sprite);
+      pinMeshes.push(sprite);
+      pinIdByUuid[sprite.uuid] = pin.id;
+    }
+
+    function rebuildPins() {
+      clearPins();
+      for (const pin of pins) {
+        if (!pin || !pin.pos) continue;
+        addPinMesh(pin);
       }
     }
 
-    function getLocationById(id) {
-      return locations.find((l) => l.id === id) || null;
+    function getPinById(id) {
+      return pins.find((p) => p.id === id) || null;
     }
 
-    function setSelectedLocation(id) {
-      selectedLocationId = id;
-      const loc = id ? getLocationById(id) : null;
-      if (locationNameEl) locationNameEl.value = loc?.name || '';
-      if (locationTypeEl) locationTypeEl.value = loc?.type || '';
-      if (locationDescEl) locationDescEl.value = loc?.desc || '';
-      if (locationsListEl) {
-        for (const child of locationsListEl.children) child.setAttribute('aria-current', 'false');
-        if (id) {
-          for (const child of locationsListEl.children) {
-            if (child.getAttribute('data-id') === id) child.setAttribute('aria-current', 'true');
-          }
+    function refreshPinDistrictOptions() {
+      if (!pinDistrictEl) return;
+      pinDistrictEl.innerHTML = '';
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = 'District (optional)';
+      pinDistrictEl.appendChild(empty);
+      for (const d of districtDefs) {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.name;
+        pinDistrictEl.appendChild(opt);
+      }
+    }
+
+    function setSelectedPin(id) {
+      selectedPinId = id;
+      const pin = id ? getPinById(id) : null;
+      if (pinNameEl) pinNameEl.value = pin?.name || '';
+      if (pinTypeEl) pinTypeEl.value = pin?.type || '';
+      if (pinDescEl) pinDescEl.value = pin?.desc || '';
+      if (pinDistrictEl) pinDistrictEl.value = pin?.districtId || '';
+      setPinPanelOpen(!!pin);
+      if (pin) {
+        setSelectedPcBuilding({ name: pin.name || 'Pin', districtId: pin.districtId || '' });
+      }
+    }
+
+    function pointIsInZone(point, districtId) {
+      const z = zones[districtId];
+      if (!z) return false;
+      const dx = point.x - z.position.x;
+      const dz = point.z - z.position.z;
+      const s = z.scale.x;
+      const r = baseZoneRadius * s;
+      return dx * dx + dz * dz <= r * r;
+    }
+
+    function autoDistrictForPoint(point) {
+      const inside = [];
+      for (const d of districtDefs) {
+        if (pointIsInZone(point, d.id)) inside.push(d.id);
+      }
+      return inside.length === 1 ? inside[0] : '';
+    }
+
+    function updatePcDropdownForSelectedDistrict() {
+      if (!pcBuildingSelectEl) return;
+      pcBuildingSelectEl.innerHTML = '';
+
+      pcBuildingSelectEl.onchange = null;
+
+      const emptyOpt = document.createElement('option');
+      emptyOpt.value = '';
+      emptyOpt.textContent = 'Select a building…';
+      pcBuildingSelectEl.appendChild(emptyOpt);
+
+      if (!selectedDistrictId) {
+        setSelectedPcBuilding(null);
+        return;
+      }
+
+      const candidates = pins.filter((p) => p.districtId === selectedDistrictId);
+      for (const p of candidates) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name || '(unnamed pin)';
+        pcBuildingSelectEl.appendChild(opt);
+      }
+
+      pcBuildingSelectEl.onchange = () => {
+        const id = pcBuildingSelectEl.value;
+        const pin = pins.find((x) => x.id === id) || null;
+        if (pin) {
+          setSelectedPin(pin.id);
+          setSelectedDistrict(districtDefs.find((d) => d.id === pin.districtId) || null);
+          setSelectedPcBuilding({ name: pin.name || '(unnamed pin)', districtId: pin.districtId || '' });
+        } else {
+          setSelectedPcBuilding(null);
         }
-      }
+      };
     }
 
-    function renderLocationsList() {
-      if (!locationsListEl) return;
-      locationsListEl.innerHTML = '';
-      for (const loc of locations) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'district-btn';
-        btn.textContent = loc.name || '(untitled)';
-        btn.setAttribute('data-id', loc.id);
-        btn.setAttribute('aria-current', loc.id === selectedLocationId ? 'true' : 'false');
-        btn.addEventListener('click', () => setSelectedLocation(loc.id));
-        locationsListEl.appendChild(btn);
-      }
-    }
+    refreshPinDistrictOptions();
+    rebuildPins();
 
-    function startPlacing(mode, draft) {
-      placingMode = mode;
-      placingDraft = draft;
-      statusEl.textContent = 'Click the map to place location…';
-    }
-
-    function stopPlacing() {
-      placingMode = null;
-      placingDraft = null;
-      updateEditHud();
-    }
-
-    if (locationCreatePlaceEl) {
-      locationCreatePlaceEl.addEventListener('click', () => {
-        const name = locationNameEl?.value?.trim() || '';
-        if (!name) {
-          statusEl.textContent = 'Enter a location name first';
-          return;
-        }
-        const draft = {
+    if (addPinEl) {
+      addPinEl.addEventListener('click', () => {
+        placingPinDraft = {
           id: makeId(),
-          name,
-          type: locationTypeEl?.value?.trim() || '',
-          desc: locationDescEl?.value || '',
+          name: '',
+          type: '',
+          desc: '',
+          districtId: '',
           pos: null,
         };
-        startPlacing('create', draft);
+        statusEl.textContent = 'Click the map to place pin…';
       });
     }
 
-    if (locationMoveEl) {
-      locationMoveEl.addEventListener('click', () => {
-        if (!selectedLocationId) {
-          statusEl.textContent = 'Select a location to move';
-          return;
-        }
-        startPlacing('move', { id: selectedLocationId });
+    if (pinMoveEl) {
+      pinMoveEl.addEventListener('click', () => {
+        if (!selectedPinId) return;
+        movingPinId = selectedPinId;
+        statusEl.textContent = 'Click the map to move pin…';
       });
     }
 
-    if (locationSaveEl) {
-      locationSaveEl.addEventListener('click', () => {
-        if (!selectedLocationId) {
-          statusEl.textContent = 'Select a location to save';
-          return;
-        }
-        const loc = getLocationById(selectedLocationId);
-        if (!loc) return;
-        loc.name = locationNameEl?.value?.trim() || loc.name;
-        loc.type = locationTypeEl?.value?.trim() || '';
-        loc.desc = locationDescEl?.value || '';
-        saveLocations(locations);
-        renderLocationsList();
-        statusEl.textContent = 'Saved location';
+    if (pinSaveEl) {
+      pinSaveEl.addEventListener('click', () => {
+        if (!selectedPinId) return;
+        const pin = getPinById(selectedPinId);
+        if (!pin) return;
+        pin.name = pinNameEl?.value?.trim() || '';
+        pin.type = pinTypeEl?.value?.trim() || '';
+        pin.desc = pinDescEl?.value || '';
+        pin.districtId = pinDistrictEl?.value || '';
+        savePins(pins);
+        updatePcDropdownForSelectedDistrict();
+        statusEl.textContent = 'Saved pin';
       });
     }
 
-    if (locationDeleteEl) {
-      locationDeleteEl.addEventListener('click', () => {
-        if (!selectedLocationId) {
-          statusEl.textContent = 'Select a location to delete';
-          return;
-        }
-        locations = locations.filter((l) => l.id !== selectedLocationId);
-        saveLocations(locations);
-        selectedLocationId = null;
-        setSelectedLocation(null);
-        rebuildMarkers();
-        renderLocationsList();
-        statusEl.textContent = 'Deleted location';
+    if (pinDeleteEl) {
+      pinDeleteEl.addEventListener('click', () => {
+        if (!selectedPinId) return;
+        pins = pins.filter((p) => p.id !== selectedPinId);
+        savePins(pins);
+        selectedPinId = null;
+        setSelectedPin(null);
+        rebuildPins();
+        updatePcDropdownForSelectedDistrict();
+        statusEl.textContent = 'Deleted pin';
       });
     }
 
-    rebuildMarkers();
-    renderLocationsList();
+    if (pinCloseEl) {
+      pinCloseEl.addEventListener('click', () => setSelectedPin(null));
+    }
 
     const defaultCentersNdc = {
       pembroke: { x: -0.269830844714094, z: 0.9101437867080426 },
@@ -656,6 +716,7 @@ loader.load(
         btn.addEventListener('click', () => {
           selectedId = d.id;
           setSelectedDistrict(d);
+          updatePcDropdownForSelectedDistrict();
           applyZoneStyles();
           for (const child of districtListEl.children) child.setAttribute('aria-current', 'false');
           btn.setAttribute('aria-current', 'true');
@@ -666,25 +727,7 @@ loader.load(
     }
 
     if (pcBuildingSelectEl) {
-      pcBuildingSelectEl.innerHTML = '';
-      const emptyOpt = document.createElement('option');
-      emptyOpt.value = '';
-      emptyOpt.textContent = 'Select a building…';
-      pcBuildingSelectEl.appendChild(emptyOpt);
-
-      for (const b of localPcBuildings) {
-        const opt = document.createElement('option');
-        opt.value = b.id;
-        opt.textContent = b.name;
-        pcBuildingSelectEl.appendChild(opt);
-      }
-
-      pcBuildingSelectEl.addEventListener('change', () => {
-        const id = pcBuildingSelectEl.value;
-        const b = localPcBuildings.find((x) => x.id === id) || null;
-        setSelectedPcBuilding(b);
-      });
-      setSelectedPcBuilding(null);
+      updatePcDropdownForSelectedDistrict();
     }
 
     function applyZoneStyles() {
@@ -768,12 +811,8 @@ loader.load(
 
       raycaster.setFromCamera(mouse, camera);
 
-      const markerHits = raycaster.intersectObjects(markerMeshes, false);
-      if (markerHits.length) {
-        const locId = locationByUuid[markerHits[0].object.uuid];
-        if (locId) setSelectedLocation(locId);
-        return;
-      }
+      const pinHits = raycaster.intersectObjects(pinMeshes, false);
+      if (pinHits.length) return;
 
       const hits = raycaster.intersectObjects(zonesArray, false);
       const hit = hits[0];
@@ -804,12 +843,53 @@ loader.load(
       mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
 
       raycaster.setFromCamera(mouse, camera);
+
+      if (placingPinDraft || movingPinId) {
+        const groundHits = raycaster.intersectObject(ground, false);
+        if (!groundHits.length) return;
+        const p = groundHits[0].point;
+
+        if (placingPinDraft) {
+          placingPinDraft.pos = { x: p.x, y: p.y, z: p.z };
+          placingPinDraft.districtId = autoDistrictForPoint(p);
+          pins.push(placingPinDraft);
+          savePins(pins);
+          rebuildPins();
+          setSelectedPin(placingPinDraft.id);
+          updatePcDropdownForSelectedDistrict();
+          statusEl.textContent = 'Placed pin';
+          placingPinDraft = null;
+          return;
+        }
+
+        if (movingPinId) {
+          const pin = getPinById(movingPinId);
+          if (!pin) return;
+          pin.pos = { x: p.x, y: p.y, z: p.z };
+          pin.districtId = pin.districtId || autoDistrictForPoint(p);
+          savePins(pins);
+          rebuildPins();
+          updatePcDropdownForSelectedDistrict();
+          statusEl.textContent = 'Moved pin';
+          movingPinId = null;
+          return;
+        }
+      }
+
+      const pinHits = raycaster.intersectObjects(pinMeshes, false);
+      if (pinHits.length) {
+        const pinId = pinIdByUuid[pinHits[0].object.uuid];
+        if (pinId) setSelectedPin(pinId);
+        return;
+      }
+
       const hits = raycaster.intersectObjects(zonesArray, false);
       const hit = hits[0];
 
       const def = hit ? defByZoneUuid[hit.object.uuid] : null;
       selectedId = def ? def.id : null;
       setSelectedDistrict(def);
+      updatePcDropdownForSelectedDistrict();
       applyZoneStyles();
 
       if (districtListEl) {
@@ -861,42 +941,6 @@ loader.load(
     renderer.domElement.addEventListener('pointermove', onPointerMove);
     renderer.domElement.addEventListener('pointerdown', onPointerDownSelect);
     renderer.domElement.addEventListener('pointerup', onPointerUpSelect);
-
-    renderer.domElement.addEventListener('pointerup', (e) => {
-      if (!placingMode) return;
-      if (editMode) return;
-
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-
-      raycaster.setFromCamera(mouse, camera);
-      const hits = raycaster.intersectObject(ground, false);
-      if (!hits.length) return;
-      const p = hits[0].point;
-
-      if (placingMode === 'create' && placingDraft) {
-        placingDraft.pos = { x: p.x, y: p.y, z: p.z };
-        locations.push(placingDraft);
-        saveLocations(locations);
-        rebuildMarkers();
-        renderLocationsList();
-        setSelectedLocation(placingDraft.id);
-        statusEl.textContent = 'Placed location';
-        stopPlacing();
-        return;
-      }
-
-      if (placingMode === 'move' && placingDraft && placingDraft.id) {
-        const loc = getLocationById(placingDraft.id);
-        if (!loc) return;
-        loc.pos = { x: p.x, y: p.y, z: p.z };
-        saveLocations(locations);
-        rebuildMarkers();
-        statusEl.textContent = 'Moved location';
-        stopPlacing();
-      }
-    });
 
     updateEditHud();
   },
