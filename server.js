@@ -9,7 +9,7 @@ const { Strategy: DiscordStrategy } = require('passport-discord');
 
 const app = express();
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 const publicDir = path.join(__dirname, 'public');
 
 const MONGODB_URI = process.env.MONGODB_URI;
