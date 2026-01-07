@@ -38,6 +38,9 @@ controls.target.set(0, 0, 0);
 controls.minDistance = 1;
 controls.maxDistance = 8000;
 
+const districtLabelSprites = [];
+let districtLabelRefDistance = 800;
+
 const hemi = new THREE.HemisphereLight(0xdde8ff, 0x0b0f14, 1.15);
 hemi.position.set(0, 400, 0);
 scene.add(hemi);
@@ -168,7 +171,7 @@ function setSelectedDistrict(def) {
   if (!def) {
     districtNameEl.textContent = 'No district selected';
     districtBodyEl.textContent =
-      'Click a district to view details.\n\nUndercity: a vast tunnel/subway network connecting major landmarks and hidden routes (not shown as a surface district yet).';
+      'Click a district to view details.\n\nUndercity: a vast tunnel/subway network connecting major landmarks and hidden routes.';
     districtSwatchEl.style.background = 'transparent';
     return;
   }
@@ -282,10 +285,10 @@ function setKey(e, on) {
       keyState.back = on;
       break;
     case 'KeyA':
-      keyState.left = on;
+      keyState.right = on;
       break;
     case 'KeyD':
-      keyState.right = on;
+      keyState.left = on;
       break;
     case 'KeyQ':
       keyState.down = on;
@@ -348,6 +351,8 @@ loader.load(
 
     const maxDim = Math.max(adjustedSize.x, adjustedSize.y, adjustedSize.z);
     const fitDistance = maxDim * 1.1;
+
+    districtLabelRefDistance = fitDistance;
 
     camera.near = Math.max(0.1, maxDim / 5000);
     camera.far = Math.max(5000, maxDim * 30);
@@ -428,6 +433,8 @@ loader.load(
       label.position.set(centers[d.id].x, ground.position.y + baseZoneRadius * s * 0.18, centers[d.id].z);
       districtsGroup.add(label);
       labels[d.id] = label;
+      label.userData.baseScale = label.scale.clone();
+      districtLabelSprites.push(label);
     }
 
     let activeIndex = 0;
@@ -683,6 +690,14 @@ window.addEventListener('resize', onResize);
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
+
+  const dist = camera.position.distanceTo(controls.target);
+  const labelScaleFactor = THREE.MathUtils.clamp(Math.sqrt(dist / Math.max(1, districtLabelRefDistance)), 0.75, 2.5);
+  for (const s of districtLabelSprites) {
+    const base = s.userData.baseScale;
+    if (!base) continue;
+    s.scale.set(base.x * labelScaleFactor, base.y * labelScaleFactor, base.z);
+  }
 
   const moveSpeed = (keyState.fast ? 520 : 260) * dt;
   const moveUpSpeed = (keyState.fast ? 420 : 220) * dt;
