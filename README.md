@@ -2,6 +2,10 @@
 
 Minimal standalone web service for viewing the Dark City `.glb` in the browser.
 
+## Ops
+
+- Render operations / troubleshooting: `RUNBOOK.md`
+
 ## Run locally
 
 ```bash
