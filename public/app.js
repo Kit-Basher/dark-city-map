@@ -50,15 +50,17 @@ const modelUrl = '/api/map.glb';
 
 let editMode = new URLSearchParams(window.location.search).get('edit') === '1';
 
+const DEFAULT_DISTRICT_RADIUS_SCALE = 0.65;
+
 function loadRadiusScale() {
   try {
     const raw = window.localStorage.getItem('dc_district_radius_scale_v1');
-    if (!raw) return 1;
+    if (!raw) return DEFAULT_DISTRICT_RADIUS_SCALE;
     const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return 1;
+    if (!Number.isFinite(n) || n <= 0) return DEFAULT_DISTRICT_RADIUS_SCALE;
     return n;
   } catch {
-    return 1;
+    return DEFAULT_DISTRICT_RADIUS_SCALE;
   }
 }
 
