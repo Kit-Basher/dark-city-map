@@ -48,7 +48,7 @@ const loader = new GLTFLoader();
 
 const modelUrl = '/api/map.glb';
 
-const editMode = new URLSearchParams(window.location.search).get('edit') === '1';
+let editMode = new URLSearchParams(window.location.search).get('edit') === '1';
 
 const districtDefs = [
   { id: 'pembroke', name: 'Pembroke', color: 0x5b8cff },
@@ -218,10 +218,19 @@ loader.load(
 
     for (const d of districtDefs) {
       const zoneGeo = new THREE.CircleGeometry(zoneRadius, 64);
-      const zoneMat = new THREE.MeshBasicMaterial({ color: d.color, transparent: true, opacity: 0.14, depthWrite: false });
+      const zoneMat = new THREE.MeshBasicMaterial({
+        color: d.color,
+        transparent: true,
+        opacity: 0.14,
+        depthWrite: false,
+        depthTest: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      });
       const zone = new THREE.Mesh(zoneGeo, zoneMat);
       zone.rotation.x = -Math.PI / 2;
-      zone.position.set(centers[d.id].x, ground.position.y + 0.08, centers[d.id].z);
+      zone.position.set(centers[d.id].x, ground.position.y + 0.25, centers[d.id].z);
       zone.renderOrder = 10;
       districtsGroup.add(zone);
       zones[d.id] = zone;
@@ -232,52 +241,71 @@ loader.load(
       labels[d.id] = label;
     }
 
-    if (editMode) {
-      let activeIndex = 0;
-      const raycaster = new THREE.Raycaster();
-      const mouse = new THREE.Vector2();
+    let activeIndex = 0;
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
 
-      statusEl.textContent = `Edit mode: click to set ${districtDefs[activeIndex].name} (press N for next)`;
-
-      function setActiveIndex(i) {
-        activeIndex = (i + districtDefs.length) % districtDefs.length;
-        statusEl.textContent = `Edit mode: click to set ${districtDefs[activeIndex].name} (press N for next)`;
+    function updateEditHud() {
+      if (!editMode) {
+        statusEl.textContent = 'Loaded';
+        return;
       }
-
-      function onKeyDown(e) {
-        if (e.key === 'n' || e.key === 'N') setActiveIndex(activeIndex + 1);
-      }
-
-      function onClick(e) {
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-
-        raycaster.setFromCamera(mouse, camera);
-        const hits = raycaster.intersectObject(ground, false);
-        if (!hits.length) return;
-
-        const point = hits[0].point;
-        const d = districtDefs[activeIndex];
-        centers[d.id] = { x: point.x, z: point.z };
-        zones[d.id].position.set(point.x, ground.position.y + 0.08, point.z);
-        labels[d.id].position.set(point.x, ground.position.y + zoneRadius * 0.18, point.z);
-
-        const ndcX = (point.x - adjustedMin.x) / (adjustedMax.x - adjustedMin.x) * 2 - 1;
-        const ndcZ = (point.z - adjustedMin.z) / (adjustedMax.z - adjustedMin.z) * 2 - 1;
-
-        const toSave = loadSavedCenters() || {};
-        toSave[d.id] = { x: ndcX, z: ndcZ };
-        saveCenters(toSave);
-
-        setActiveIndex(activeIndex + 1);
-      }
-
-      window.addEventListener('keydown', onKeyDown);
-      renderer.domElement.addEventListener('click', onClick);
+      statusEl.textContent = `Edit: click to set ${districtDefs[activeIndex].name} (N=next, E=exit)`;
     }
 
-    statusEl.textContent = 'Loaded';
+    function setActiveIndex(i) {
+      activeIndex = (i + districtDefs.length) % districtDefs.length;
+      updateEditHud();
+    }
+
+    function setEditMode(on) {
+      editMode = on;
+      controls.enabled = !editMode;
+      updateEditHud();
+    }
+
+    setEditMode(editMode);
+
+    function onKeyDown(e) {
+      if (e.key === 'e' || e.key === 'E') {
+        setEditMode(!editMode);
+        return;
+      }
+      if (!editMode) return;
+      if (e.key === 'n' || e.key === 'N') setActiveIndex(activeIndex + 1);
+    }
+
+    function onPointerDown(e) {
+      if (!editMode) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObject(ground, false);
+      if (!hits.length) return;
+
+      const point = hits[0].point;
+      const d = districtDefs[activeIndex];
+      centers[d.id] = { x: point.x, z: point.z };
+      zones[d.id].position.set(point.x, ground.position.y + 0.25, point.z);
+      labels[d.id].position.set(point.x, ground.position.y + zoneRadius * 0.18, point.z);
+
+      const ndcX = ((point.x - adjustedMin.x) / (adjustedMax.x - adjustedMin.x)) * 2 - 1;
+      const ndcZ = ((point.z - adjustedMin.z) / (adjustedMax.z - adjustedMin.z)) * 2 - 1;
+
+      const toSave = loadSavedCenters() || {};
+      toSave[d.id] = { x: ndcX, z: ndcZ };
+      saveCenters(toSave);
+
+      setActiveIndex(activeIndex + 1);
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+
+    updateEditHud();
   },
   (evt) => {
     if (!evt.total) return;
