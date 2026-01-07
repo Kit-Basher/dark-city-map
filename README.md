@@ -6,6 +6,7 @@ Minimal standalone web service for viewing the Dark City `.glb` in the browser.
 
 ```bash
 npm install
+cp .env.example .env
 export MONGODB_URI="mongodb://..."
 npm run upload:glb -- /absolute/path/to/dark.city.map.glb
 npm start
