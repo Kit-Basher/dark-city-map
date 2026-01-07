@@ -71,6 +71,65 @@ function saveRadiusScale(scale) {
   window.localStorage.setItem('dc_district_radius_scale_v1', String(scale));
 }
 
+function clipPolygonWithHalfPlane(poly, mid, normal) {
+  if (!poly.length) return [];
+
+  const out = [];
+  const eps = 1e-9;
+
+  function inside(p) {
+    const dx = p.x - mid.x;
+    const dz = p.z - mid.z;
+    return dx * normal.x + dz * normal.z <= eps;
+  }
+
+  function intersect(a, b) {
+    const abx = b.x - a.x;
+    const abz = b.z - a.z;
+    const amx = a.x - mid.x;
+    const amz = a.z - mid.z;
+    const denom = abx * normal.x + abz * normal.z;
+    if (Math.abs(denom) < eps) return { x: a.x, z: a.z };
+    const t = -(amx * normal.x + amz * normal.z) / denom;
+    return { x: a.x + abx * t, z: a.z + abz * t };
+  }
+
+  for (let i = 0; i < poly.length; i++) {
+    const curr = poly[i];
+    const prev = poly[(i + poly.length - 1) % poly.length];
+    const currIn = inside(curr);
+    const prevIn = inside(prev);
+
+    if (currIn) {
+      if (!prevIn) out.push(intersect(prev, curr));
+      out.push(curr);
+    } else if (prevIn) {
+      out.push(intersect(prev, curr));
+    }
+  }
+
+  return out;
+}
+
+function computeVoronoiCell(site, sites, bounds) {
+  let poly = [
+    { x: bounds.minX, z: bounds.minZ },
+    { x: bounds.maxX, z: bounds.minZ },
+    { x: bounds.maxX, z: bounds.maxZ },
+    { x: bounds.minX, z: bounds.maxZ },
+  ];
+
+  for (const other of sites) {
+    if (other.id === site.id) continue;
+    const mid = { x: (site.x + other.x) / 2, z: (site.z + other.z) / 2 };
+    const normal = { x: other.x - site.x, z: other.z - site.z };
+    poly = clipPolygonWithHalfPlane(poly, mid, normal);
+    if (poly.length < 3) return [];
+  }
+
+  return poly;
+}
+
 const districtDefs = [
   { id: 'pembroke', name: 'Pembroke', color: 0x5b8cff },
   { id: 'little_york', name: 'Little York', color: 0xff8a3d },
@@ -299,61 +358,140 @@ loader.load(
     let radiusScale = loadRadiusScale();
     const baseZoneRadius = Math.max(adjustedSize.x, adjustedSize.z) * 0.14;
 
+    const bounds = {
+      minX: adjustedMin.x,
+      maxX: adjustedMax.x,
+      minZ: adjustedMin.z,
+      maxZ: adjustedMax.z,
+    };
+
     const zones = {};
     const labels = {};
     const zonesArray = [];
     const defByZoneUuid = {};
 
-    for (const d of districtDefs) {
-      const zoneGeo = new THREE.CircleGeometry(baseZoneRadius, 64);
-      const zoneMat = new THREE.MeshBasicMaterial({
-        color: d.color,
-        transparent: true,
-        opacity: 0.14,
-        depthWrite: false,
-        depthTest: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-        polygonOffsetUnits: -2,
-      });
-      const zone = new THREE.Mesh(zoneGeo, zoneMat);
-      zone.rotation.x = -Math.PI / 2;
-      zone.position.set(centers[d.id].x, ground.position.y + 0.25, centers[d.id].z);
-      zone.scale.set(radiusScale, radiusScale, 1);
-      zone.renderOrder = 10;
-      districtsGroup.add(zone);
-      zones[d.id] = zone;
-      zonesArray.push(zone);
-      defByZoneUuid[zone.uuid] = d;
+    const regions = {};
+    const regionOutlines = {};
+    const regionMeshesArray = [];
+    const regionOutlineArray = [];
+    const defByRegionUuid = {};
 
-      const label = makeTextSprite(d.name);
-      label.position.set(centers[d.id].x, ground.position.y + baseZoneRadius * radiusScale * 0.18, centers[d.id].z);
-      districtsGroup.add(label);
-      labels[d.id] = label;
+    function buildRegionsAndOverlays() {
+      for (const obj of regionMeshesArray) districtsGroup.remove(obj);
+      for (const obj of regionOutlineArray) districtsGroup.remove(obj);
+      for (const key of Object.keys(regions)) delete regions[key];
+      for (const key of Object.keys(regionOutlines)) delete regionOutlines[key];
+      regionMeshesArray.length = 0;
+      regionOutlineArray.length = 0;
+      for (const key of Object.keys(defByRegionUuid)) delete defByRegionUuid[key];
+
+      const sites = districtDefs.map((d) => ({ id: d.id, x: centers[d.id].x, z: centers[d.id].z }));
+
+      for (const d of districtDefs) {
+        const cell = computeVoronoiCell({ id: d.id, x: centers[d.id].x, z: centers[d.id].z }, sites, bounds);
+        if (cell.length < 3) continue;
+
+        const shapePts = cell.map((p) => new THREE.Vector2(p.x, p.z));
+        const shape = new THREE.Shape(shapePts);
+        const geom = new THREE.ShapeGeometry(shape);
+
+        const mat = new THREE.MeshBasicMaterial({
+          color: d.color,
+          transparent: true,
+          opacity: 0.08,
+          depthWrite: false,
+          depthTest: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -4,
+          polygonOffsetUnits: -4,
+        });
+
+        const region = new THREE.Mesh(geom, mat);
+        region.rotation.x = -Math.PI / 2;
+        region.position.y = ground.position.y + 0.22;
+        region.renderOrder = 5;
+        districtsGroup.add(region);
+
+        regions[d.id] = region;
+        regionMeshesArray.push(region);
+        defByRegionUuid[region.uuid] = d;
+
+        const outlinePts = [...cell, cell[0]].map((p) => new THREE.Vector3(p.x, ground.position.y + 0.24, p.z));
+        const outlineGeom = new THREE.BufferGeometry().setFromPoints(outlinePts);
+        const outlineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 });
+        const outline = new THREE.Line(outlineGeom, outlineMat);
+        outline.renderOrder = 6;
+        districtsGroup.add(outline);
+        regionOutlines[d.id] = outline;
+        regionOutlineArray.push(outline);
+      }
+
+      for (const d of districtDefs) {
+        if (!zones[d.id]) {
+          const zoneGeo = new THREE.CircleGeometry(baseZoneRadius, 64);
+          const zoneMat = new THREE.MeshBasicMaterial({
+            color: d.color,
+            transparent: true,
+            opacity: 0.06,
+            depthWrite: false,
+            depthTest: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2,
+          });
+          const zone = new THREE.Mesh(zoneGeo, zoneMat);
+          zone.rotation.x = -Math.PI / 2;
+          zone.position.set(centers[d.id].x, ground.position.y + 0.25, centers[d.id].z);
+          zone.scale.set(radiusScale, radiusScale, 1);
+          zone.renderOrder = 10;
+          districtsGroup.add(zone);
+          zones[d.id] = zone;
+          zonesArray.push(zone);
+          defByZoneUuid[zone.uuid] = d;
+        } else {
+          zones[d.id].position.set(centers[d.id].x, ground.position.y + 0.25, centers[d.id].z);
+          zones[d.id].scale.set(radiusScale, radiusScale, 1);
+        }
+
+        if (!labels[d.id]) {
+          const label = makeTextSprite(d.name);
+          label.position.set(centers[d.id].x, ground.position.y + baseZoneRadius * radiusScale * 0.18, centers[d.id].z);
+          districtsGroup.add(label);
+          labels[d.id] = label;
+        } else {
+          labels[d.id].position.set(centers[d.id].x, ground.position.y + baseZoneRadius * radiusScale * 0.18, centers[d.id].z);
+        }
+      }
     }
+
+    buildRegionsAndOverlays();
 
     let activeIndex = 0;
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
-    const baseOpacity = 0.14;
-    const hoverOpacity = 0.22;
-    const selectedOpacity = 0.28;
+    const baseOpacity = 0.08;
+    const hoverOpacity = 0.14;
+    const selectedOpacity = 0.18;
 
     let hoveredId = null;
     let selectedId = null;
 
     function applyZoneStyles() {
       for (const d of districtDefs) {
-        const zone = zones[d.id];
-        if (!zone) continue;
+        const region = regions[d.id];
+        if (region && region.material) {
+          if (selectedId === d.id) region.material.opacity = selectedOpacity;
+          else if (hoveredId === d.id) region.material.opacity = hoverOpacity;
+          else region.material.opacity = baseOpacity;
+        }
 
-        const mat = zone.material;
-        if (!mat) continue;
-
-        if (selectedId === d.id) mat.opacity = selectedOpacity;
-        else if (hoveredId === d.id) mat.opacity = hoverOpacity;
-        else mat.opacity = baseOpacity;
+        const outline = regionOutlines[d.id];
+        if (outline && outline.material) {
+          if (selectedId === d.id) outline.material.opacity = 0.7;
+          else if (hoveredId === d.id) outline.material.opacity = 0.55;
+          else outline.material.opacity = 0.35;
+        }
       }
     }
 
@@ -425,10 +563,10 @@ loader.load(
       mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
 
       raycaster.setFromCamera(mouse, camera);
-      const hits = raycaster.intersectObjects(zonesArray, false);
+      const hits = raycaster.intersectObjects(regionMeshesArray, false);
       const hit = hits[0];
 
-      const nextHovered = hit ? defByZoneUuid[hit.object.uuid]?.id ?? null : null;
+      const nextHovered = hit ? defByRegionUuid[hit.object.uuid]?.id ?? null : null;
       if (nextHovered === hoveredId) return;
       hoveredId = nextHovered;
       applyZoneStyles();
@@ -454,10 +592,10 @@ loader.load(
       mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
 
       raycaster.setFromCamera(mouse, camera);
-      const hits = raycaster.intersectObjects(zonesArray, false);
+      const hits = raycaster.intersectObjects(regionMeshesArray, false);
       const hit = hits[0];
 
-      const def = hit ? defByZoneUuid[hit.object.uuid] : null;
+      const def = hit ? defByRegionUuid[hit.object.uuid] : null;
       selectedId = def ? def.id : null;
       setSelectedDistrict(def);
       applyZoneStyles();
@@ -479,6 +617,8 @@ loader.load(
       centers[d.id] = { x: point.x, z: point.z };
       zones[d.id].position.set(point.x, ground.position.y + 0.25, point.z);
       labels[d.id].position.set(point.x, ground.position.y + baseZoneRadius * radiusScale * 0.18, point.z);
+
+      buildRegionsAndOverlays();
 
       const ndcX = ((point.x - adjustedMin.x) / (adjustedMax.x - adjustedMin.x)) * 2 - 1;
       const ndcZ = ((point.z - adjustedMin.z) / (adjustedMax.z - adjustedMin.z)) * 2 - 1;
