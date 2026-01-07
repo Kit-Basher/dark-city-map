@@ -20,6 +20,10 @@ const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const DISCORD_CALLBACK_URL = process.env.DISCORD_CALLBACK_URL;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 
+const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID;
+const DISCORD_MOD_ROLE_ID = process.env.DISCORD_MOD_ROLE_ID;
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+
 let mongoClient;
 
 async function getMongoClient() {
@@ -88,6 +92,81 @@ app.use(
 );
 app.use(passport.initialize());
 app.use(passport.session());
+
+const roleCheckCache = new Map();
+
+async function userHasModeratorRole(userId) {
+  if (!DISCORD_GUILD_ID || !DISCORD_MOD_ROLE_ID || !DISCORD_BOT_TOKEN) {
+    throw new Error('Moderator role check is not configured');
+  }
+
+  const key = String(userId);
+  const cached = roleCheckCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.allowed;
+
+  const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/members/${userId}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+    },
+  });
+
+  if (!res.ok) {
+    roleCheckCache.set(key, { allowed: false, expiresAt: Date.now() + 1000 * 60 * 2 });
+    return false;
+  }
+
+  const data = await res.json();
+  const roles = Array.isArray(data?.roles) ? data.roles : [];
+  const allowed = roles.includes(String(DISCORD_MOD_ROLE_ID));
+  roleCheckCache.set(key, { allowed, expiresAt: Date.now() + 1000 * 60 * 10 });
+  return allowed;
+}
+
+function isPublicPath(pathname) {
+  if (!pathname) return false;
+  if (pathname === '/auth/discord') return true;
+  if (pathname === '/auth/discord/callback') return true;
+  if (pathname === '/auth/logout') return true;
+  if (pathname === '/api/me') return true;
+  return false;
+}
+
+app.use(async (req, res, next) => {
+  if (isPublicPath(req.path)) return next();
+
+  const wantsJson = req.path.startsWith('/api/') || (req.headers.accept && req.headers.accept.includes('application/json'));
+  const isAuthed = req.isAuthenticated && req.isAuthenticated() && req.user && req.user.id;
+
+  if (!isAuthed) {
+    if (wantsJson) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const returnTo = req.originalUrl || '/';
+    res.redirect(`/auth/discord?returnTo=${encodeURIComponent(returnTo)}`);
+    return;
+  }
+
+  try {
+    const ok = await userHasModeratorRole(req.user.id);
+    if (!ok) {
+      if (wantsJson) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+      res.status(403).send('Forbidden');
+      return;
+    }
+    next();
+  } catch (err) {
+    if (wantsJson) {
+      res.status(500).json({ error: err?.message || 'Server error' });
+      return;
+    }
+    res.status(500).send(err?.message || 'Server error');
+  }
+});
 
 app.use(express.static(publicDir));
 
