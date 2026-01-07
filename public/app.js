@@ -623,7 +623,7 @@ loader.load(
         setSelectedPcBuilding({ name: pin.name || 'Pin', districtId: pin.districtId || '' });
       }
 
-      const canEdit = !!(pin && currentUser && pin.ownerId && pin.ownerId === currentUser.id);
+      const canEdit = !!(pin && currentUser && (editMode || (pin.ownerId && pin.ownerId === currentUser.id)));
       if (pinMoveEl) pinMoveEl.disabled = !canEdit;
       if (pinSaveEl) pinSaveEl.disabled = !canEdit;
       if (pinDeleteEl) pinDeleteEl.disabled = !canEdit;
@@ -766,7 +766,8 @@ loader.load(
         if (!me) return;
         if (!selectedPinId) return;
         const pin = getPinById(selectedPinId);
-        if (!pin || pin.ownerId !== me.id) {
+        if (!pin) return;
+        if (!editMode && pin.ownerId !== me.id) {
           statusEl.textContent = 'You can only delete your own pins';
           return;
         }
@@ -1194,6 +1195,14 @@ loader.load(
       mouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
 
       raycaster.setFromCamera(mouse, camera);
+
+      const pinHits = raycaster.intersectObjects(pinMeshes, false);
+      if (pinHits.length) {
+        const pinId = pinIdByUuid[pinHits[0].object.uuid];
+        if (pinId) setSelectedPin(pinId);
+        e.preventDefault();
+        return;
+      }
 
       const zoneHits = raycaster.intersectObjects(zonesArray, false);
       if (!zoneHits.length) return;

@@ -347,10 +347,6 @@ app.delete('/api/pins/:id', requireAuth, async (req, res) => {
       res.status(404).json({ error: 'Pin not found' });
       return;
     }
-    if (existing.ownerId !== req.user.id) {
-      res.status(403).json({ error: 'Forbidden' });
-      return;
-    }
     await db.collection('pins').deleteOne({ _id: id });
     res.json({ ok: true });
   } catch (err) {
