@@ -1,8 +1,13 @@
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/DRACOLoader.js';
+import { MeshoptDecoder } from 'https://unpkg.com/three@0.160.0/examples/jsm/libs/meshopt_decoder.module.js';
 
 const statusEl = document.getElementById('status');
+const loadingOverlayEl = document.getElementById('loading-overlay');
+const loadingBarFillEl = document.getElementById('loading-bar-fill');
+const loadingSubEl = document.getElementById('loading-sub');
 const districtNameEl = document.getElementById('district-name');
 const districtBodyEl = document.getElementById('district-body');
 const districtSwatchEl = document.getElementById('district-swatch');
@@ -72,7 +77,24 @@ const fill = new THREE.DirectionalLight(0xffffff, 0.35);
 fill.position.set(-400, 250, -300);
 scene.add(fill);
 
+function setLoadingProgress(pct, text) {
+  const clamped = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : null;
+  if (loadingBarFillEl && clamped !== null) loadingBarFillEl.style.width = `${clamped}%`;
+  if (loadingSubEl && typeof text === 'string') loadingSubEl.textContent = text;
+}
+
+function hideLoadingOverlay() {
+  if (!loadingOverlayEl) return;
+  loadingOverlayEl.setAttribute('aria-hidden', 'true');
+  loadingOverlayEl.style.display = 'none';
+}
+
 const loader = new GLTFLoader();
+
+const draco = new DRACOLoader();
+draco.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
+loader.setDRACOLoader(draco);
+loader.setMeshoptDecoder(MeshoptDecoder);
 
 const modelUrl = '/api/map.glb';
 
@@ -458,10 +480,12 @@ window.addEventListener('keydown', (e) => setKey(e, true), { passive: false });
 window.addEventListener('keyup', (e) => setKey(e, false), { passive: false });
 
 statusEl.textContent = 'Loading model…';
+setLoadingProgress(0, 'Fetching 3D model');
 
 loader.load(
   modelUrl,
   async (gltf) => {
+    setLoadingProgress(85, 'Preparing scene');
     const root = gltf.scene;
     scene.add(root);
 
@@ -736,6 +760,7 @@ loader.load(
       };
     }
 
+    setLoadingProgress(92, 'Loading pins');
     await refreshMe();
     pins = await loadPinsFromServer();
     refreshPinDistrictOptions();
@@ -1391,15 +1416,20 @@ loader.load(
     renderer.domElement.addEventListener('pointerup', onPointerUpSelect);
 
     updateEditHud();
+
+    setLoadingProgress(100, 'Ready');
+    hideLoadingOverlay();
   },
   (evt) => {
     if (!evt.total) return;
     const pct = Math.round((evt.loaded / evt.total) * 100);
     statusEl.textContent = `Loading model… ${pct}%`;
+    setLoadingProgress(pct, 'Fetching 3D model');
   },
   (err) => {
     console.error(err);
     statusEl.textContent = 'Failed to load model';
+    setLoadingProgress(0, 'Failed to load');
   }
 );
 

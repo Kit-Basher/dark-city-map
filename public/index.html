@@ -59,6 +59,53 @@
         opacity: 0.85;
       }
 
+      #loading-overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(900px 520px at 50% 40%, rgba(20, 30, 44, 0.7), rgba(11, 15, 20, 0.95));
+        z-index: 9999;
+      }
+
+      #loading-card {
+        width: min(520px, calc(100vw - 32px));
+        background: rgba(13, 18, 26, 0.74);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 14px;
+        padding: 16px;
+        backdrop-filter: blur(10px);
+      }
+
+      #loading-title {
+        font-weight: 800;
+        letter-spacing: 0.3px;
+        font-size: 14px;
+      }
+
+      #loading-sub {
+        margin-top: 6px;
+        font-size: 12px;
+        opacity: 0.8;
+      }
+
+      #loading-bar {
+        margin-top: 12px;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+
+      #loading-bar > div {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, rgba(91, 140, 255, 1), rgba(199, 125, 255, 1));
+        border-radius: 999px;
+        transition: width 120ms ease;
+      }
+
       #district-panel {
         position: fixed;
         left: 16px;
@@ -235,6 +282,14 @@
   </head>
   <body>
     <div id="app"></div>
+
+    <div id="loading-overlay" aria-hidden="false">
+      <div id="loading-card">
+        <div id="loading-title">Loading map…</div>
+        <div id="loading-sub">Fetching 3D model</div>
+        <div id="loading-bar"><div id="loading-bar-fill"></div></div>
+      </div>
+    </div>
 
     <div id="hud">
       <div class="panel">

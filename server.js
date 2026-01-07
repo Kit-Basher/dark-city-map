@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const { MongoClient, GridFSBucket } = require('mongodb');
+const compression = require('compression');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const passport = require('passport');
@@ -68,6 +69,8 @@ if (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && DISCORD_CALLBACK_URL) {
 }
 
 app.set('trust proxy', 1);
+
+app.use(compression());
 
 app.use(express.json({ limit: '256kb' }));
 app.use(
@@ -161,7 +164,24 @@ app.get('/', (req, res, next) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
-app.use(express.static(publicDir));
+app.use(
+  express.static(publicDir, {
+    etag: true,
+    lastModified: true,
+    maxAge: process.env.NODE_ENV === 'production' ? '30d' : 0,
+    setHeaders(res, filePath) {
+      if (!filePath) return;
+      if (process.env.NODE_ENV !== 'production') return;
+
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+        return;
+      }
+
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+    },
+  })
+);
 
 function requireAuth(req, res, next) {
   if (req.isAuthenticated && req.isAuthenticated()) return next();
@@ -373,8 +393,32 @@ app.get('/api/map.glb', async (req, res) => {
     const db = client.db();
     const bucket = new GridFSBucket(db, { bucketName: GRIDFS_BUCKET });
 
+    const files = await bucket.find({ filename: MAP_GLB_FILENAME }).limit(1).toArray();
+    const file = files && files[0] ? files[0] : null;
+    if (!file) {
+      res.status(404).send('Map GLB not found in GridFS');
+      return;
+    }
+
+    const etag = `\"${String(file._id)}:${String(file.length)}\"`;
+    const lastModified = file.uploadDate ? new Date(file.uploadDate).toUTCString() : null;
+
     res.setHeader('Content-Type', 'model/gltf-binary');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('ETag', etag);
+    if (lastModified) res.setHeader('Last-Modified', lastModified);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    if (req.headers['if-none-match'] === etag) {
+      res.status(304).end();
+      return;
+    }
+    if (lastModified && req.headers['if-modified-since']) {
+      const ims = new Date(req.headers['if-modified-since']);
+      if (!Number.isNaN(ims.valueOf()) && file.uploadDate && ims >= file.uploadDate) {
+        res.status(304).end();
+        return;
+      }
+    }
 
     const downloadStream = bucket.openDownloadStreamByName(MAP_GLB_FILENAME);
 
@@ -390,10 +434,6 @@ app.get('/api/map.glb', async (req, res) => {
   } catch (err) {
     res.status(500).send(err?.message || 'Server error');
   }
-});
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 app.listen(port, () => {
