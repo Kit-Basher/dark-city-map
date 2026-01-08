@@ -29,6 +29,7 @@ Do **not** commit here if you changed:
 
 ## Push checklist
 
+- Run `./dc-preflight.sh` to confirm repo/branch/remote.
 - Make sure you’re inside the `dark-city-map-web/` repo (look for `dark-city-map-web/.git/`).
 - Confirm deployment env vars exist:
   - `MONGODB_URI`
