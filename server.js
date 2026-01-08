@@ -140,6 +140,47 @@ async function userHasModeratorRole(userId) {
   return allowed;
 }
 
+async function userHasEditorRole(userId) {
+  // If an admin role is configured, editor access is admin-only.
+  // Otherwise, fall back to the moderator role.
+  if (!DISCORD_GUILD_ID || !DISCORD_BOT_TOKEN || (!DISCORD_ADMIN_ROLE_ID && !DISCORD_MOD_ROLE_ID)) {
+    throw new Error('Editor role check is not configured');
+  }
+
+  const key = `editor:${String(userId)}`;
+  const cached = roleCheckCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.allowed;
+
+  const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/members/${userId}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const msg = `Discord role check failed (HTTP ${res.status})`;
+    if (res.status === 429 || res.status >= 500) {
+      throw new Error(msg);
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(msg);
+    }
+    roleCheckCache.set(key, { allowed: false, expiresAt: Date.now() + 1000 * 60 * 2 });
+    void text;
+    return false;
+  }
+
+  const data = await res.json();
+  const roles = Array.isArray(data?.roles) ? data.roles : [];
+  const allowed = DISCORD_ADMIN_ROLE_ID
+    ? roles.includes(String(DISCORD_ADMIN_ROLE_ID))
+    : roles.includes(String(DISCORD_MOD_ROLE_ID));
+  roleCheckCache.set(key, { allowed, expiresAt: Date.now() + 1000 * 60 * 10 });
+  return allowed;
+}
+
 function isPublicPath(pathname) {
   if (!pathname) return false;
   if (pathname === '/auth/discord') return true;
@@ -156,7 +197,7 @@ function requireModerator(req, res, next) {
     res.redirect(`/auth/discord?returnTo=${encodeURIComponent(returnTo)}`);
     return;
   }
-  userHasModeratorRole(req.user.id)
+  userHasEditorRole(req.user.id)
     .then((ok) => {
       if (!ok) {
         res.status(403).send('Forbidden');
@@ -205,7 +246,7 @@ function requireAuth(req, res, next) {
 async function isModerator(req) {
   try {
     if (!(req.isAuthenticated && req.isAuthenticated() && req.user && req.user.id)) return false;
-    return await userHasModeratorRole(req.user.id);
+    return await userHasEditorRole(req.user.id);
   } catch {
     return false;
   }
@@ -262,15 +303,15 @@ app.put('/api/districts/config', requireAuth, async (req, res) => {
 
 app.get('/api/me', (req, res) => {
   const authed = req.isAuthenticated && req.isAuthenticated() && req.user;
-  if (!authed) return res.json({ user: null, isModerator: false });
+  if (!authed) return res.json({ user: null, isModerator: false, isAdmin: false, isEditor: false });
 
-  userHasModeratorRole(req.user.id)
-    .then((ok) => {
-      res.json({ user: req.user, isModerator: !!ok });
-    })
-    .catch(() => {
-      res.json({ user: req.user, isModerator: false });
-    });
+  Promise.all([
+    userHasModeratorRole(req.user.id).catch(() => false),
+    userHasEditorRole(req.user.id).catch(() => false),
+  ]).then(([isModeratorRole, isEditor]) => {
+    const isAdmin = !!(isEditor && DISCORD_ADMIN_ROLE_ID);
+    res.json({ user: req.user, isModerator: !!isModeratorRole, isAdmin, isEditor: !!isEditor });
+  });
 });
 
 app.get('/auth/discord', (req, res, next) => {
