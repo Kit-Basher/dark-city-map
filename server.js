@@ -23,6 +23,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 
 const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID;
 const DISCORD_MOD_ROLE_ID = process.env.DISCORD_MOD_ROLE_ID;
+const DISCORD_ADMIN_ROLE_ID = process.env.DISCORD_ADMIN_ROLE_ID || process.env.ADMIN_ROLE_ID;
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
 let mongoClient;
@@ -115,13 +116,26 @@ async function userHasModeratorRole(userId) {
   });
 
   if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const msg = `Discord role check failed (HTTP ${res.status})`;
+    // Treat upstream failures as errors so editors don't get a misleading 403.
+    if (res.status === 429 || res.status >= 500) {
+      throw new Error(msg);
+    }
+    // 401/403 typically indicates a bot token / guild config issue.
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(msg);
+    }
     roleCheckCache.set(key, { allowed: false, expiresAt: Date.now() + 1000 * 60 * 2 });
+    void text;
     return false;
   }
 
   const data = await res.json();
   const roles = Array.isArray(data?.roles) ? data.roles : [];
-  const allowed = roles.includes(String(DISCORD_MOD_ROLE_ID));
+  const mod = roles.includes(String(DISCORD_MOD_ROLE_ID));
+  const admin = DISCORD_ADMIN_ROLE_ID ? roles.includes(String(DISCORD_ADMIN_ROLE_ID)) : false;
+  const allowed = mod || admin;
   roleCheckCache.set(key, { allowed, expiresAt: Date.now() + 1000 * 60 * 10 });
   return allowed;
 }
@@ -247,11 +261,16 @@ app.put('/api/districts/config', requireAuth, async (req, res) => {
 });
 
 app.get('/api/me', (req, res) => {
-  if (req.isAuthenticated && req.isAuthenticated()) {
-    res.json({ user: req.user });
-    return;
-  }
-  res.json({ user: null });
+  const authed = req.isAuthenticated && req.isAuthenticated() && req.user;
+  if (!authed) return res.json({ user: null, isModerator: false });
+
+  userHasModeratorRole(req.user.id)
+    .then((ok) => {
+      res.json({ user: req.user, isModerator: !!ok });
+    })
+    .catch(() => {
+      res.json({ user: req.user, isModerator: false });
+    });
 });
 
 app.get('/auth/discord', (req, res, next) => {
