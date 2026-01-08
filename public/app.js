@@ -12,6 +12,8 @@ const districtNameEl = document.getElementById('district-name');
 const districtBodyEl = document.getElementById('district-body');
 const districtSwatchEl = document.getElementById('district-swatch');
 const districtListEl = document.getElementById('district-list');
+const districtPanelEl = document.getElementById('district-panel');
+const districtToggleEl = document.getElementById('district-toggle');
 const pcBuildingSelectEl = document.getElementById('pc-building-select');
 const pcBuildingDetailsEl = document.getElementById('pc-building-details');
 const addPinEl = document.getElementById('add-pin');
@@ -29,6 +31,37 @@ const districtSaveEl = document.getElementById('district-save');
 const container = document.getElementById('app');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b0f14);
+
+function setDistrictPanelOpen(open) {
+  if (!districtPanelEl) return;
+  districtPanelEl.setAttribute('data-open', open ? 'true' : 'false');
+  if (districtToggleEl) {
+    districtToggleEl.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
+function isMobileLayout() {
+  return window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+}
+
+function syncDistrictPanelForViewport() {
+  if (!districtPanelEl) return;
+  if (isMobileLayout()) {
+    if (!districtPanelEl.hasAttribute('data-open')) setDistrictPanelOpen(false);
+  } else {
+    setDistrictPanelOpen(true);
+  }
+}
+
+if (districtToggleEl) {
+  districtToggleEl.addEventListener('click', () => {
+    const open = districtPanelEl?.getAttribute('data-open') === 'true';
+    setDistrictPanelOpen(!open);
+  });
+}
+
+window.addEventListener('resize', syncDistrictPanelForViewport);
+syncDistrictPanelForViewport();
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 50000);
 camera.position.set(0, 250, 450);

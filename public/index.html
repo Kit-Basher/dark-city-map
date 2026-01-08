@@ -119,6 +119,55 @@
         pointer-events: auto;
       }
 
+      #district-toggle {
+        display: none;
+        pointer-events: auto;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(13, 18, 26, 0.8);
+        color: #e7eef7;
+        border-radius: 999px;
+        padding: 8px 10px;
+        font: inherit;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      #district-toggle:hover {
+        border-color: rgba(255, 255, 255, 0.2);
+        background: rgba(13, 18, 26, 0.95);
+      }
+
+      @media (max-width: 640px) {
+        #hud {
+          left: 10px;
+          top: 10px;
+          right: 10px;
+        }
+
+        #district-toggle {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        #district-panel {
+          left: 10px;
+          right: 10px;
+          top: auto;
+          bottom: 10px;
+          width: auto;
+          max-width: none;
+          max-height: 58vh;
+          overflow: auto;
+          transform: translateY(calc(100% - 54px));
+          transition: transform 180ms ease;
+        }
+
+        #district-panel[data-open='true'] {
+          transform: translateY(0);
+        }
+      }
+
       #district-list {
         display: grid;
         grid-template-columns: 1fr;
@@ -296,6 +345,7 @@
         <div class="title">Dark City Map</div>
         <div class="sub">Drag to orbit · Right-drag to pan · Scroll to zoom</div>
       </div>
+      <button id="district-toggle" type="button">Districts</button>
       <div class="panel" id="status">Loading…</div>
     </div>
 
