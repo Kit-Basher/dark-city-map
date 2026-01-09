@@ -113,13 +113,22 @@ scene.add(fill);
 
 function setLoadingProgress(pct, text) {
   const clamped = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : null;
-  if (loadingBarFillEl && clamped !== null) loadingBarFillEl.style.width = `${clamped}%`;
-  if (loadingSubEl && typeof text === 'string') loadingSubEl.textContent = text;
+  console.log('setLoadingProgress called:', { pct, clamped, text, hasFillEl: !!loadingBarFillEl, hasSubEl: !!loadingSubEl });
+  if (loadingBarFillEl && clamped !== null) {
+    loadingBarFillEl.style.width = `${clamped}%`;
+    console.log('Set progress bar width to:', `${clamped}%`);
+  }
+  if (loadingSubEl && typeof text === 'string') {
+    loadingSubEl.textContent = text;
+    console.log('Set progress text to:', text);
+  }
 }
 
 function setLoadingIndeterminate(on) {
+  console.log('setLoadingIndeterminate called:', { on, hasBarEl: !!loadingBarEl });
   if (!loadingBarEl) return;
   loadingBarEl.setAttribute('data-indeterminate', on ? 'true' : 'false');
+  console.log('Set data-indeterminate to:', on ? 'true' : 'false');
 }
 
 function formatBytes(bytes) {
