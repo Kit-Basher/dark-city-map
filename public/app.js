@@ -6,6 +6,7 @@ import { MeshoptDecoder } from 'https://unpkg.com/three@0.160.0/examples/jsm/lib
 
 const statusEl = document.getElementById('status');
 const loadingOverlayEl = document.getElementById('loading-overlay');
+const loadingBarEl = document.getElementById('loading-bar');
 const loadingBarFillEl = document.getElementById('loading-bar-fill');
 const loadingSubEl = document.getElementById('loading-sub');
 const districtNameEl = document.getElementById('district-name');
@@ -114,6 +115,21 @@ function setLoadingProgress(pct, text) {
   const clamped = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : null;
   if (loadingBarFillEl && clamped !== null) loadingBarFillEl.style.width = `${clamped}%`;
   if (loadingSubEl && typeof text === 'string') loadingSubEl.textContent = text;
+}
+
+function setLoadingIndeterminate(on) {
+  if (!loadingBarEl) return;
+  loadingBarEl.setAttribute('data-indeterminate', on ? 'true' : 'false');
+}
+
+function formatBytes(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  const v = n / Math.pow(1024, i);
+  const digits = i === 0 ? 0 : i === 1 ? 0 : 1;
+  return `${v.toFixed(digits)} ${units[i]}`;
 }
 
 function hideLoadingOverlay() {
@@ -514,10 +530,12 @@ window.addEventListener('keyup', (e) => setKey(e, false), { passive: false });
 
 statusEl.textContent = 'Loading model…';
 setLoadingProgress(0, 'Fetching 3D model');
+setLoadingIndeterminate(false);
 
 loader.load(
   modelUrl,
   async (gltf) => {
+    setLoadingIndeterminate(false);
     setLoadingProgress(85, 'Preparing scene');
     const root = gltf.scene;
     scene.add(root);
@@ -1459,10 +1477,20 @@ loader.load(
     hideLoadingOverlay();
   },
   (evt) => {
-    if (!evt.total) return;
-    const pct = Math.round((evt.loaded / evt.total) * 100);
-    statusEl.textContent = `Loading model… ${pct}%`;
-    setLoadingProgress(pct, 'Fetching 3D model');
+    const loaded = evt && typeof evt.loaded === 'number' ? evt.loaded : 0;
+    const total = evt && typeof evt.total === 'number' ? evt.total : 0;
+
+    if (total > 0 && loaded >= 0) {
+      setLoadingIndeterminate(false);
+      const pct = Math.round((loaded / total) * 100);
+      statusEl.textContent = `Loading model… ${pct}%`;
+      setLoadingProgress(pct, `Downloading 3D model (${pct}%)`);
+      return;
+    }
+
+    setLoadingIndeterminate(true);
+    statusEl.textContent = 'Loading model…';
+    setLoadingProgress(15, `Downloading 3D model (${formatBytes(loaded)})`);
   },
   (err) => {
     console.error(err);
