@@ -129,6 +129,14 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+app.get('/health', (req, res) => {
+  res.status(200).json({ ok: true, service: 'map', ts: new Date().toISOString() });
+});
+
+app.get('/status-ping', (req, res) => {
+  res.status(200).send('OK');
+});
+
 const roleCheckCache = new Map();
 
 async function userHasModeratorRole(userId) {
