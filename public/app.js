@@ -1074,7 +1074,7 @@ loader.load(
 
     function setEditMode(on) {
       editMode = on;
-      controls.enabled = !editMode;
+      controls.enabled = true;
       if (districtSaveEl) districtSaveEl.style.display = editMode ? '' : 'none';
       updateEditHud();
     }
@@ -1342,6 +1342,8 @@ loader.load(
       dragState.mode = isResize ? 'resize' : 'move';
       dragState.districtId = def.id;
       dragState.grabOffset = isResize ? null : { x: cx - point.x, z: cz - point.z };
+      // While dragging/resizing, disable OrbitControls so the mouse doesn't fight the editor.
+      controls.enabled = false;
       renderer.domElement.setPointerCapture(e.pointerId);
       e.preventDefault();
     }
@@ -1391,6 +1393,9 @@ loader.load(
       dragState.mode = null;
       dragState.districtId = null;
       dragState.grabOffset = null;
+
+      // Re-enable camera navigation after finishing an edit drag.
+      controls.enabled = true;
     }
 
     function buildCentersNdcForSave() {
