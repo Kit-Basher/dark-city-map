@@ -64,7 +64,7 @@ window.addEventListener('resize', syncDistrictPanelForViewport);
 syncDistrictPanelForViewport();
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 50000);
-camera.position.set(0, 250, 450);
+camera.position.set(450, 250, 0);
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
@@ -554,7 +554,7 @@ loader.load(
     camera.far = Math.max(5000, maxDim * 30);
     camera.updateProjectionMatrix();
 
-    camera.position.set(0, fitDistance * 0.6, fitDistance);
+    camera.position.set(fitDistance, fitDistance * 0.6, 0);
     controls.target.set(0, 0, 0);
     controls.update();
 
