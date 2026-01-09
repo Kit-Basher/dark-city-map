@@ -26,6 +26,9 @@ const DISCORD_MOD_ROLE_ID = process.env.DISCORD_MOD_ROLE_ID;
 const DISCORD_ADMIN_ROLE_ID = process.env.DISCORD_ADMIN_ROLE_ID || process.env.ADMIN_ROLE_ID;
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
+const TELEMETRY_INGEST_URL = String(process.env.TELEMETRY_INGEST_URL || '').trim();
+const TELEMETRY_INGEST_TOKEN = String(process.env.TELEMETRY_INGEST_TOKEN || '').trim();
+
 let mongoClient;
 
 async function getMongoClient() {
@@ -47,6 +50,35 @@ async function getDb() {
 
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((obj, done) => done(null, obj));
+
+async function postTelemetryEvent(payload) {
+  try {
+    if (!TELEMETRY_INGEST_URL || !TELEMETRY_INGEST_TOKEN) return;
+    await fetch(TELEMETRY_INGEST_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-telemetry-token': TELEMETRY_INGEST_TOKEN,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // ignore
+  }
+}
+
+function telemetry(service, level, category, event, message, actorUserId, meta) {
+  const body = {
+    service,
+    level,
+    category,
+    event,
+    message,
+    actorUserId,
+    meta,
+  };
+  void postTelemetryEvent(body);
+}
 
 if (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && DISCORD_CALLBACK_URL) {
   passport.use(
@@ -200,6 +232,7 @@ function requireModerator(req, res, next) {
   userHasEditorRole(req.user.id)
     .then((ok) => {
       if (!ok) {
+        telemetry('map', 'security', 'auth', 'editor_forbidden', null, String(req.user.id), null);
         res.status(403).send('Forbidden');
         return;
       }
@@ -268,6 +301,7 @@ app.put('/api/districts/config', requireAuth, async (req, res) => {
   try {
     const mod = await isModerator(req);
     if (!mod) {
+      telemetry('map', 'security', 'districts', 'districts_update_forbidden', null, String(req.user.id), null);
       res.status(403).json({ error: 'Forbidden' });
       return;
     }
@@ -295,8 +329,14 @@ app.put('/api/districts/config', requireAuth, async (req, res) => {
       { upsert: true }
     );
 
+    telemetry('map', 'info', 'districts', 'districts_config_updated', null, String(req.user.id), {
+      resourceId: DISTRICT_CONFIG_DOC_ID,
+    });
     res.json({ ok: true, config });
   } catch (err) {
+    telemetry('map', 'error', 'districts', 'districts_config_update_error', err?.message || 'Server error', req.user ? String(req.user.id) : null, {
+      resourceId: DISTRICT_CONFIG_DOC_ID,
+    });
     res.status(500).json({ error: err?.message || 'Server error' });
   }
 });
@@ -385,8 +425,12 @@ app.post('/api/pins', requireAuth, async (req, res) => {
       return;
     }
     await db.collection('pins').insertOne(doc);
+    telemetry('map', 'info', 'pins', 'pin_created', null, String(req.user.id), {
+      resourceId: String(doc._id),
+    });
     res.json({ pin: doc });
   } catch (err) {
+    telemetry('map', 'error', 'pins', 'pin_create_error', err?.message || 'Server error', req.user ? String(req.user.id) : null, null);
     res.status(500).json({ error: err?.message || 'Server error' });
   }
 });
@@ -402,6 +446,9 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
     }
     const mod = await isModerator(req);
     if (!mod && existing.ownerId !== req.user.id) {
+      telemetry('map', 'security', 'pins', 'pin_update_forbidden', null, String(req.user.id), {
+        resourceId: String(id),
+      });
       res.status(403).json({ error: 'Forbidden' });
       return;
     }
@@ -420,8 +467,14 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
 
     await db.collection('pins').updateOne({ _id: id }, { $set: update });
     const pin = await db.collection('pins').findOne({ _id: id });
+    telemetry('map', 'info', 'pins', 'pin_updated', null, String(req.user.id), {
+      resourceId: String(id),
+    });
     res.json({ pin });
   } catch (err) {
+    telemetry('map', 'error', 'pins', 'pin_update_error', err?.message || 'Server error', req.user ? String(req.user.id) : null, {
+      resourceId: String(req.params?.id || ''),
+    });
     res.status(500).json({ error: err?.message || 'Server error' });
   }
 });
@@ -437,12 +490,21 @@ app.delete('/api/pins/:id', requireAuth, async (req, res) => {
     }
     const mod = await isModerator(req);
     if (!mod && existing.ownerId !== req.user.id) {
+      telemetry('map', 'security', 'pins', 'pin_delete_forbidden', null, String(req.user.id), {
+        resourceId: String(id),
+      });
       res.status(403).json({ error: 'Forbidden' });
       return;
     }
     await db.collection('pins').deleteOne({ _id: id });
+    telemetry('map', 'info', 'pins', 'pin_deleted', null, String(req.user.id), {
+      resourceId: String(id),
+    });
     res.json({ ok: true });
   } catch (err) {
+    telemetry('map', 'error', 'pins', 'pin_delete_error', err?.message || 'Server error', req.user ? String(req.user.id) : null, {
+      resourceId: String(req.params?.id || ''),
+    });
     res.status(500).json({ error: err?.message || 'Server error' });
   }
 });
