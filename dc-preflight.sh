@@ -3,6 +3,11 @@ set -euo pipefail
 
 start_dir="${1:-$(pwd)}"
 
+if ! command -v git >/dev/null 2>&1; then
+  echo "ERROR: git is not installed or not on PATH" >&2
+  exit 1
+fi
+
 find_git_root() {
   local dir="$1"
   while true; do
@@ -18,15 +23,14 @@ find_git_root() {
 }
 
 git_root=""
-if git_root="$(find_git_root "$start_dir")"; then
-  :
-else
-  echo "Not inside a git repo (no .git found above: $start_dir)" >&2
-  echo "Tip: run this from one of:" >&2
-  echo "  dark-city-game" >&2
-  echo "  dark-city-bot" >&2
-  echo "  dark-city-map-web" >&2
-  exit 2
+git_root="$(git -C "$start_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$git_root" ]; then
+  if git_root="$(find_git_root "$start_dir")"; then
+    :
+  else
+    echo "Not inside a git repo (no .git found above: $start_dir)" >&2
+    exit 2
+  fi
 fi
 
 repo_name="$(basename "$git_root")"
@@ -60,15 +64,46 @@ case "$repo_name" in
     ;;
 esac
 
+normalize_origin() {
+  local url="$1"
+  local host_path=""
+
+  case "$url" in
+    https://*)
+      host_path="${url#https://}"
+      ;;
+    http://*)
+      host_path="${url#http://}"
+      ;;
+    git@*:*/*)
+      host_path="${url#git@}"
+      host_path="${host_path/:/\/}"
+      ;;
+    ssh://git@*/*)
+      host_path="${url#ssh://git@}"
+      ;;
+    *)
+      host_path="$url"
+      ;;
+  esac
+
+  host_path="${host_path%.git}"
+  printf '%s' "$host_path"
+}
+
 if [ -n "$expected_origin" ]; then
   if [ -z "$origin_url" ]; then
     echo "ERROR: origin remote is missing (expected: $expected_origin)" >&2
     exit 4
   fi
-  if [ "$origin_url" != "$expected_origin" ]; then
+  expected_norm="$(normalize_origin "$expected_origin")"
+  actual_norm="$(normalize_origin "$origin_url")"
+  if [ "$actual_norm" != "$expected_norm" ]; then
     echo "ERROR: origin remote mismatch" >&2
     echo "  expected: $expected_origin" >&2
     echo "  actual:   $origin_url" >&2
+    echo "  expected(normalized): $expected_norm" >&2
+    echo "  actual(normalized):   $actual_norm" >&2
     exit 5
   fi
 fi

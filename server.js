@@ -21,6 +21,10 @@ const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const DISCORD_CALLBACK_URL = process.env.DISCORD_CALLBACK_URL;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 
+if (process.env.NODE_ENV === 'production' && !SESSION_SECRET) {
+  throw new Error('Missing required environment variable in production: SESSION_SECRET');
+}
+
 const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID;
 const DISCORD_MOD_ROLE_ID = process.env.DISCORD_MOD_ROLE_ID;
 const DISCORD_ADMIN_ROLE_ID = process.env.DISCORD_ADMIN_ROLE_ID || process.env.ADMIN_ROLE_ID;
