@@ -288,6 +288,46 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: 'Unauthorized' });
 }
 
+async function requireDiscordGuildMembership(req, res, next) {
+  const isAuthed = req.isAuthenticated && req.isAuthenticated() && req.user && req.user.id;
+  if (!isAuthed) {
+    res.status(401).json({ error: 'Discord login required' });
+    return;
+  }
+
+  if (!DISCORD_GUILD_ID || !DISCORD_BOT_TOKEN) {
+    console.error('Missing Discord configuration for guild membership check');
+    res.status(500).json({ error: 'Server configuration error' });
+    return;
+  }
+
+  try {
+    const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/members/${req.user.id}`;
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+      },
+      timeout: 5000
+    });
+
+    if (resp.status === 200) {
+      return next(); // User is a member of the guild
+    } else {
+      res.status(403).json({ error: 'You must be a member of the Dark City Discord server to perform this action' });
+      return;
+    }
+  } catch (error) {
+    if (error.response?.status === 404) {
+      // User is not in the guild
+      res.status(403).json({ error: 'You must be a member of the Dark City Discord server to perform this action' });
+    } else {
+      console.error('Error checking Discord guild membership:', error);
+      res.status(500).json({ error: 'Failed to verify Discord membership' });
+    }
+    return;
+  }
+}
+
 async function isModerator(req) {
   try {
     if (!(req.isAuthenticated && req.isAuthenticated() && req.user && req.user.id)) return false;
@@ -403,7 +443,7 @@ app.get('/api/pins', async (req, res) => {
   }
 });
 
-app.post('/api/pins', requireAuth, async (req, res) => {
+app.post('/api/pins', requireDiscordGuildMembership, async (req, res) => {
   try {
     const body = req.body || {};
     const id = typeof body.id === 'string' ? body.id : null;
@@ -447,7 +487,7 @@ app.post('/api/pins', requireAuth, async (req, res) => {
   }
 });
 
-app.put('/api/pins/:id', requireAuth, async (req, res) => {
+app.put('/api/pins/:id', requireDiscordGuildMembership, async (req, res) => {
   try {
     const id = req.params.id;
     const db = await getDb();
@@ -491,7 +531,7 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.delete('/api/pins/:id', requireAuth, async (req, res) => {
+app.delete('/api/pins/:id', requireDiscordGuildMembership, async (req, res) => {
   try {
     const id = req.params.id;
     const db = await getDb();
