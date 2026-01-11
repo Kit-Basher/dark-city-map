@@ -358,25 +358,18 @@ class AuthMiddleware {
 
 /**
  * Quiz completion verification for Writer role
+ * Note: This is only used by the game service, not map-web
  */
 class QuizSystem {
   /**
    * Check if user has passed the quiz and has Writer role
+   * Map-web service doesn't use quiz functionality
    */
   static async isQualifiedWriter(userId) {
     try {
-      // Check Discord role first
+      // For map-web, only check Discord role (no quiz system here)
       const hasWriterRole = await DiscordAPI.hasRole(userId, DISCORD_CONFIG.WRITER_ROLE_ID);
-      if (!hasWriterRole) {
-        return false;
-      }
-
-      // Then check quiz completion in database
-      // This would need to be implemented based on your quiz system
-      const QuizStatus = require('../models/QuizStatus');
-      const quizPass = await QuizStatus.findOne({ discordUserId: userId }).lean();
-      
-      return !!quizPass;
+      return hasWriterRole;
     } catch (error) {
       console.error('Error checking writer qualification:', error);
       return false;
