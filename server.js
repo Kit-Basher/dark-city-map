@@ -6,6 +6,7 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const passport = require('passport');
 const { Strategy: DiscordStrategy } = require('passport-discord');
+const { AuthMiddleware, RBAC, DiscordAPI } = require('../shared/auth-system');
 
 const app = express();
 
@@ -26,8 +27,6 @@ if (process.env.NODE_ENV === 'production' && !SESSION_SECRET) {
 }
 
 const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID;
-const DISCORD_MOD_ROLE_ID = process.env.DISCORD_MOD_ROLE_ID;
-const DISCORD_ADMIN_ROLE_ID = process.env.DISCORD_ADMIN_ROLE_ID || process.env.ADMIN_ROLE_ID;
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
 const TELEMETRY_INGEST_URL = String(process.env.TELEMETRY_INGEST_URL || '').trim();
@@ -141,89 +140,6 @@ app.get('/status-ping', (req, res) => {
   res.status(200).send('OK');
 });
 
-const roleCheckCache = new Map();
-
-async function userHasModeratorRole(userId) {
-  if (!DISCORD_GUILD_ID || !DISCORD_MOD_ROLE_ID || !DISCORD_BOT_TOKEN) {
-    throw new Error('Moderator role check is not configured');
-  }
-
-  const key = String(userId);
-  const cached = roleCheckCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.allowed;
-
-  const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/members/${userId}`;
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    const msg = `Discord role check failed (HTTP ${res.status})`;
-    // Treat upstream failures as errors so editors don't get a misleading 403.
-    if (res.status === 429 || res.status >= 500) {
-      throw new Error(msg);
-    }
-    // 401/403 typically indicates a bot token / guild config issue.
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(msg);
-    }
-    roleCheckCache.set(key, { allowed: false, expiresAt: Date.now() + 1000 * 60 * 2 });
-    void text;
-    return false;
-  }
-
-  const data = await res.json();
-  const roles = Array.isArray(data?.roles) ? data.roles : [];
-  const mod = roles.includes(String(DISCORD_MOD_ROLE_ID));
-  const admin = DISCORD_ADMIN_ROLE_ID ? roles.includes(String(DISCORD_ADMIN_ROLE_ID)) : false;
-  const allowed = mod || admin;
-  roleCheckCache.set(key, { allowed, expiresAt: Date.now() + 1000 * 60 * 10 });
-  return allowed;
-}
-
-async function userHasEditorRole(userId) {
-  // If an admin role is configured, editor access is admin-only.
-  // Otherwise, fall back to the moderator role.
-  if (!DISCORD_GUILD_ID || !DISCORD_BOT_TOKEN || (!DISCORD_ADMIN_ROLE_ID && !DISCORD_MOD_ROLE_ID)) {
-    throw new Error('Editor role check is not configured');
-  }
-
-  const key = `editor:${String(userId)}`;
-  const cached = roleCheckCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.allowed;
-
-  const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/members/${userId}`;
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    const msg = `Discord role check failed (HTTP ${res.status})`;
-    if (res.status === 429 || res.status >= 500) {
-      throw new Error(msg);
-    }
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(msg);
-    }
-    roleCheckCache.set(key, { allowed: false, expiresAt: Date.now() + 1000 * 60 * 2 });
-    void text;
-    return false;
-  }
-
-  const data = await res.json();
-  const roles = Array.isArray(data?.roles) ? data.roles : [];
-  const allowed = DISCORD_ADMIN_ROLE_ID
-    ? roles.includes(String(DISCORD_ADMIN_ROLE_ID))
-    : roles.includes(String(DISCORD_MOD_ROLE_ID));
-  roleCheckCache.set(key, { allowed, expiresAt: Date.now() + 1000 * 60 * 10 });
-  return allowed;
-}
 
 function isPublicPath(pathname) {
   if (!pathname) return false;
@@ -235,24 +151,7 @@ function isPublicPath(pathname) {
 }
 
 function requireModerator(req, res, next) {
-  const isAuthed = req.isAuthenticated && req.isAuthenticated() && req.user && req.user.id;
-  if (!isAuthed) {
-    const returnTo = req.originalUrl || '/';
-    res.redirect(`/auth/discord?returnTo=${encodeURIComponent(returnTo)}`);
-    return;
-  }
-  userHasEditorRole(req.user.id)
-    .then((ok) => {
-      if (!ok) {
-        telemetry('map', 'security', 'auth', 'editor_forbidden', null, String(req.user.id), null);
-        res.status(403).send('Forbidden');
-        return;
-      }
-      next();
-    })
-    .catch((err) => {
-      res.status(500).send(err?.message || 'Server error');
-    });
+  AuthMiddleware.requireRole(RBAC.ROLES.MODERATOR)(req, res, next);
 }
 
 app.get('/', (req, res, next) => {
@@ -284,46 +183,26 @@ app.use(
 );
 
 function requireAuth(req, res, next) {
-  if (req.isAuthenticated && req.isAuthenticated()) return next();
-  res.status(401).json({ error: 'Unauthorized' });
+  AuthMiddleware.requireDiscordAuth()(req, res, next);
 }
 
 async function requireDiscordGuildMembership(req, res, next) {
-  const isAuthed = req.isAuthenticated && req.isAuthenticated() && req.user && req.user.id;
-  if (!isAuthed) {
-    res.status(401).json({ error: 'Discord login required' });
-    return;
-  }
-
-  if (!DISCORD_GUILD_ID || !DISCORD_BOT_TOKEN) {
-    console.error('Missing Discord configuration for guild membership check');
-    res.status(500).json({ error: 'Server configuration error' });
-    return;
-  }
-
   try {
-    const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/members/${req.user.id}`;
-    const resp = await fetch(url, {
-      headers: {
-        Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-      },
-      timeout: 5000
-    });
+    if (!req.isAuthenticated || !req.isAuthenticated() || !req.user || !req.user.id) {
+      res.status(401).json({ error: 'Discord login required' });
+      return;
+    }
 
-    if (resp.status === 200) {
-      return next(); // User is a member of the guild
-    } else {
+    const userRole = await DiscordAPI.getUserHighestRole(req.user.id);
+    if (userRole === RBAC.ROLES.PUBLIC) {
       res.status(403).json({ error: 'You must be a member of the Dark City Discord server to perform this action' });
       return;
     }
+
+    next();
   } catch (error) {
-    if (error.response?.status === 404) {
-      // User is not in the guild
-      res.status(403).json({ error: 'You must be a member of the Dark City Discord server to perform this action' });
-    } else {
-      console.error('Error checking Discord guild membership:', error);
-      res.status(500).json({ error: 'Failed to verify Discord membership' });
-    }
+    console.error('Error checking Discord guild membership:', error);
+    res.status(500).json({ error: 'Failed to verify Discord membership' });
     return;
   }
 }
@@ -331,7 +210,8 @@ async function requireDiscordGuildMembership(req, res, next) {
 async function isModerator(req) {
   try {
     if (!(req.isAuthenticated && req.isAuthenticated() && req.user && req.user.id)) return false;
-    return await userHasEditorRole(req.user.id);
+    const userRole = await DiscordAPI.getUserHighestRole(req.user.id);
+    return userRole === RBAC.ROLES.MODERATOR || userRole === RBAC.ROLES.ADMIN;
   } catch {
     return false;
   }
@@ -397,13 +277,16 @@ app.get('/api/me', (req, res) => {
   const authed = req.isAuthenticated && req.isAuthenticated() && req.user;
   if (!authed) return res.json({ user: null, isModerator: false, isAdmin: false, isEditor: false });
 
-  Promise.all([
-    userHasModeratorRole(req.user.id).catch(() => false),
-    userHasEditorRole(req.user.id).catch(() => false),
-  ]).then(([isModeratorRole, isEditor]) => {
-    const isAdmin = !!(isEditor && DISCORD_ADMIN_ROLE_ID);
-    res.json({ user: req.user, isModerator: !!isModeratorRole, isAdmin, isEditor: !!isEditor });
-  });
+  DiscordAPI.getUserHighestRole(req.user.id)
+    .then((userRole) => {
+      const isModerator = userRole === RBAC.ROLES.MODERATOR || userRole === RBAC.ROLES.ADMIN;
+      const isAdmin = userRole === RBAC.ROLES.ADMIN;
+      const isEditor = isModerator; // Editors are moderators in this context
+      res.json({ user: req.user, isModerator, isAdmin, isEditor, role: userRole });
+    })
+    .catch(() => {
+      res.json({ user: req.user, isModerator: false, isAdmin: false, isEditor: false });
+    });
 });
 
 app.get('/auth/discord', (req, res, next) => {
