@@ -6,7 +6,7 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const passport = require('passport');
 const { Strategy: DiscordStrategy } = require('passport-discord');
-const { AuthMiddleware, RBAC, DiscordAPI } = require('../shared/auth-system');
+const { AuthMiddleware, RBAC, DiscordAPI } = require('./auth-system');
 
 const app = express();
 
