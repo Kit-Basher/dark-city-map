@@ -3,7 +3,7 @@
  * Replaces all messy authentication with unified Discord OAuth + RBAC
  */
 
-const axios = require('axios');
+const https = require('https');
 
 // Discord Configuration - Centralized
 const DISCORD_CONFIG = {
@@ -121,11 +121,31 @@ class DiscordAPI {
 
     try {
       const url = `https://discord.com/api/v10/guilds/${DISCORD_CONFIG.GUILD_ID}/members/${userId}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bot ${DISCORD_CONFIG.BOT_TOKEN}`,
-        },
-        timeout: 10000
+      
+      const response = await new Promise((resolve, reject) => {
+        const req = https.get(url, {
+          headers: {
+            Authorization: `Bot ${DISCORD_CONFIG.BOT_TOKEN}`,
+          },
+          timeout: 10000
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              const jsonData = JSON.parse(data);
+              resolve({ status: res.statusCode, data: jsonData });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        
+        req.on('error', reject);
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('Request timeout'));
+        });
       });
 
       if (response.status !== 200) {
