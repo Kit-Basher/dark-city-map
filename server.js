@@ -163,7 +163,6 @@ function requireModerator(req, res, next) {
         return next();
       }
 
-      console.warn(`Map editor access denied: User ${req.user.id} (${userRole}) attempted to access edit mode`);
       return res.status(403).send('Access denied');
     } catch (error) {
       console.error('Map editor auth error:', error);
