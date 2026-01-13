@@ -151,7 +151,25 @@ function isPublicPath(pathname) {
 }
 
 function requireModerator(req, res, next) {
-  AuthMiddleware.requireRole(RBAC.ROLES.MODERATOR)(req, res, next);
+  // Custom check for either moderator or admin role
+  (async () => {
+    try {
+      if (!req.isAuthenticated || !req.isAuthenticated() || !req.user || !req.user.id) {
+        return AuthMiddleware.requireDiscordAuth()(req, res, next);
+      }
+
+      const userRole = await DiscordAPI.getUserHighestRole(req.user.id);
+      if (userRole === RBAC.ROLES.MODERATOR || userRole === RBAC.ROLES.ADMIN) {
+        return next();
+      }
+
+      console.warn(`Map editor access denied: User ${req.user.id} (${userRole}) attempted to access edit mode`);
+      return res.status(403).send('Access denied');
+    } catch (error) {
+      console.error('Map editor auth error:', error);
+      return res.status(403).send('Access denied');
+    }
+  })();
 }
 
 app.get('/', (req, res, next) => {
