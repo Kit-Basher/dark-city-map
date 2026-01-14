@@ -151,7 +151,7 @@ function isPublicPath(pathname) {
 }
 
 function requireModerator(req, res, next) {
-  // Custom check for either moderator or admin role
+  // Custom check for moderator or admin role ONLY (for full map editing)
   (async () => {
     try {
       if (!req.isAuthenticated || !req.isAuthenticated() || !req.user || !req.user.id) {
@@ -234,6 +234,16 @@ async function isModerator(req) {
   }
 }
 
+async function isWriter(req) {
+  try {
+    if (!(req.isAuthenticated && req.isAuthenticated() && req.user && req.user.id)) return false;
+    const userRole = await DiscordAPI.getUserHighestRole(req.user.id);
+    return userRole === RBAC.ROLES.WRITER || userRole === RBAC.ROLES.MODERATOR || userRole === RBAC.ROLES.ADMIN;
+  } catch {
+    return false;
+  }
+}
+
 const DISTRICT_CONFIG_DOC_ID = 'districts_v1';
 
 app.get('/api/districts/config', async (req, res) => {
@@ -292,17 +302,18 @@ app.put('/api/districts/config', requireAuth, async (req, res) => {
 
 app.get('/api/me', (req, res) => {
   const authed = req.isAuthenticated && req.isAuthenticated() && req.user;
-  if (!authed) return res.json({ user: null, isModerator: false, isAdmin: false, isEditor: false });
+  if (!authed) return res.json({ user: null, isModerator: false, isAdmin: false, isWriter: false, isEditor: false });
 
   DiscordAPI.getUserHighestRole(req.user.id)
     .then((userRole) => {
       const isModerator = userRole === RBAC.ROLES.MODERATOR || userRole === RBAC.ROLES.ADMIN;
       const isAdmin = userRole === RBAC.ROLES.ADMIN;
+      const isWriter = userRole === RBAC.ROLES.WRITER || userRole === RBAC.ROLES.MODERATOR || userRole === RBAC.ROLES.ADMIN;
       const isEditor = isModerator; // Editors are moderators in this context
-      res.json({ user: req.user, isModerator, isAdmin, isEditor, role: userRole });
+      res.json({ user: req.user, isModerator, isAdmin, isWriter, isEditor, role: userRole });
     })
     .catch(() => {
-      res.json({ user: req.user, isModerator: false, isAdmin: false, isEditor: false });
+      res.json({ user: req.user, isModerator: false, isAdmin: false, isWriter: false, isEditor: false });
     });
 });
 
@@ -345,6 +356,13 @@ app.get('/api/pins', async (req, res) => {
 
 app.post('/api/pins', requireDiscordGuildMembership, async (req, res) => {
   try {
+    // Check if user is writer or higher
+    const writer = await isWriter(req);
+    if (!writer) {
+      res.status(403).json({ error: 'Writer role required to create pins' });
+      return;
+    }
+
     const body = req.body || {};
     const id = typeof body.id === 'string' ? body.id : null;
     if (!id) {
